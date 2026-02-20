@@ -14,13 +14,65 @@ let currentTurn = BLACK, lastMove = null, capturedBlack = 0, capturedWhite = 0, 
 let boardHistory = [], lastCapturedStones = [], moveHistory = [], blackMoveCount = 0, whiteMoveCount = 0;
 let yellowAsBlack = new Set(), yellowAsWhite = new Set();
 let gameMode = 'human', humanColor = BLACK, aiColor = WHITE, aiGameStarted = false, showingTerritory = false;
+var countRequestedBy = null;
+var deadStoneMarks = new Set();
+var scoringInspectMode = false;
+var lastScoringView = null;
+/* 착수시간: 기본시간이 주어지고 매 초 줄어듦. 0이 되면 해당 색 패. 한 수 둘 때마다 +byoYomi초가 그 색에 가산. */
+var timeConfig = { base: 180, byoYomi: 10 };
+var blackTimeRemaining = 180, whiteTimeRemaining = 180, timerIntervalId = null;
 
 const boardEl = document.getElementById('board'), turnEl = document.getElementById('turn'), capBlackEl = document.getElementById('cap-black'), capWhiteEl = document.getElementById('cap-white'), passCountEl = document.getElementById('pass-count'), messageEl = document.getElementById('message');
+var timeBlackEl = document.getElementById('time-black'), timeWhiteEl = document.getElementById('time-white');
 
-function setBoardSize(size) { SIZE = size; document.querySelectorAll('.board-size .btn').forEach(b => b.classList.remove('active')); document.getElementById('size-' + size).classList.add('active'); }
+function setBoardSize(size) { SIZE = size; document.querySelectorAll('.board-size .btn').forEach(b => b.classList.remove('active')); var el = document.getElementById('size-' + size); if (el) el.classList.add('active'); }
 function showScreen(id) { document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden')); const el = document.getElementById(id); if (el) el.classList.remove('hidden'); }
-function goToStart() { showScreen('screen-start'); }
-function goToHumanGame() { gameMode = 'human'; aiGameStarted = false; resetGame(); showScreen('screen-game'); }
+function goToStart() { clearDeadStoneMarks(); showScreen('screen-start'); }
+function setTimeLimit(baseSeconds, byoYomiSeconds) {
+    timeConfig.base = baseSeconds;
+    timeConfig.byoYomi = byoYomiSeconds;
+    var ids = ['time-10-10', 'time-3-10', 'time-5-20', 'time-10-30'];
+    ids.forEach(function (id) { var b = document.getElementById(id); if (b) b.classList.remove('active'); });
+    var activeId = (baseSeconds === 10 && byoYomiSeconds === 10) ? 'time-10-10' : (baseSeconds === 180 && byoYomiSeconds === 10) ? 'time-3-10' : (baseSeconds === 300 && byoYomiSeconds === 20) ? 'time-5-20' : 'time-10-30';
+    var ab = document.getElementById(activeId); if (ab) ab.classList.add('active');
+}
+function formatTime(sec) {
+    if (sec < 0) sec = 0;
+    var m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return m + ':' + (s < 10 ? '0' : '') + s;
+}
+function updateTimeDisplay() {
+    if (timeBlackEl) timeBlackEl.textContent = formatTime(blackTimeRemaining);
+    if (timeWhiteEl) timeWhiteEl.textContent = formatTime(whiteTimeRemaining);
+}
+function stopTimer() {
+    if (timerIntervalId !== null) { clearInterval(timerIntervalId); timerIntervalId = null; }
+}
+function startTimer() {
+    stopTimer();
+    if (!timeBlackEl || gameEnded) return;
+    /* AI와 두기에서도 컴퓨터 차례에 타이머 가동(시간이 흐름). 사람/컴퓨터 모두 시간패 적용 */
+    timerIntervalId = setInterval(function () {
+        if (currentTurn === BLACK) {
+            blackTimeRemaining -= 1;
+            if (blackTimeRemaining <= 0) { blackTimeRemaining = 0; stopTimer(); gameEnded = true; if (messageEl) messageEl.textContent = '시간 초과. 흑 패. 백 시간승.'; updateTimeDisplay(); updateUI(); updateSidebarResult('white', null, true); return; }
+        } else {
+            whiteTimeRemaining -= 1;
+            if (whiteTimeRemaining <= 0) { whiteTimeRemaining = 0; stopTimer(); gameEnded = true; if (messageEl) messageEl.textContent = '시간 초과. 백 패. 흑 시간승.'; updateTimeDisplay(); updateUI(); updateSidebarResult('black', null, true); return; }
+        }
+        updateTimeDisplay();
+    }, 1000);
+}
+/* 착수 시: 둔 쪽 남은 시간에 매 수 추가시간(byoYomi)을 더함. */
+function onHumanMoved() {
+    var justPlayed = currentTurn === BLACK ? WHITE : BLACK;
+    if (justPlayed === BLACK) blackTimeRemaining += timeConfig.byoYomi;
+    else whiteTimeRemaining += timeConfig.byoYomi;
+    updateTimeDisplay();
+    stopTimer();
+    if (!gameEnded) startTimer();
+}
+function goToHumanGame() { gameMode = 'human'; aiGameStarted = false; resetGame(); showScreen('screen-game'); if (currentTurn === BLACK) startTimer(); }
 function goToAIChoice() { showScreen('screen-ai-choice'); }
 function doStoneChoice() {
     humanColor = Math.random() < 0.5 ? BLACK : WHITE;
@@ -28,7 +80,8 @@ function doStoneChoice() {
     aiGameStarted = true; gameMode = 'ai';
     resetGame(); showScreen('screen-game');
     messageEl.textContent = humanColor === BLACK ? '흑(당신) 선공입니다!' : '백(당신) 후공입니다. AI가 먼저 둡니다.';
-    if (humanColor === WHITE) setTimeout(aiPlay, 600);
+    if (humanColor === BLACK) startTimer();
+    if (humanColor === WHITE) { startTimer(); setTimeout(aiPlay, 600); }
 }
 
 function initBoard() {
@@ -102,12 +155,17 @@ function removeGroup(r, c) {
 function boardSignature() { return board.map(row => row.join('')).join(''); }
 
 function placeStone(row, col) {
+    if (scoringInspectMode && board[row][col] !== EMPTY) { toggleDeadStoneMark(row, col); return; }
     if (gameEnded || board[row][col] !== EMPTY) return;
+    if (countRequestedBy) return;
     if (gameMode === 'ai' && (!aiGameStarted || currentTurn !== humanColor)) return;
-    if (doPlaceStone(row, col) && gameMode === 'ai' && currentTurn === aiColor) setTimeout(aiPlay, 500);
+    if (doPlaceStone(row, col)) {
+        onHumanMoved();
+        if (gameMode === 'ai' && currentTurn === aiColor) setTimeout(aiPlay, 500);
+    }
 }
 
-function doPlaceStone(row, col) {
+function doPlaceStone(row, col, skipUI) {
     if (board[row][col] !== EMPTY) return false;
     const opponent = currentTurn === BLACK ? WHITE : BLACK;
     const isFirstBlack = currentTurn === BLACK && blackMoveCount === 0, isFirstWhite = currentTurn === WHITE && whiteMoveCount === 0;
@@ -137,7 +195,7 @@ function doPlaceStone(row, col) {
     lastMove = [row, col]; consecutivePass = 0;
     if (currentTurn === BLACK) blackMoveCount++; else whiteMoveCount++;
     currentTurn = currentTurn === BLACK ? WHITE : BLACK;
-    clearTerritoryDisplay(); updateUI(); renderStones();
+    if (!skipUI) { clearDeadStoneMarks(); clearTerritoryDisplay(); updateUI(); renderStones(); }
     return true;
 }
 
@@ -173,32 +231,233 @@ function getValidMoves() {
     }
     return moves;
 }
-function evaluateMove(move) {
-    const { r, c, captures } = move, opponent = currentTurn === BLACK ? WHITE : BLACK;
-    let score = captures > 0 ? 80 + captures * 15 : 0;
-    getNeighbors(r, c).forEach(([nr, nc]) => {
-        if (board[nr][nc] === currentTurn) { const lib = getLiberties(nr, nc, currentTurn); if (lib === 1) score += 25; score += 6; }
-        else if (board[nr][nc] === opponent) { const lib = getLiberties(nr, nc, opponent); if (lib === 2) score += 8; }
+/* ========== AI와 두기: Pachi/KataGo 참고 재구성 (UCT+RAVE, 휴리스틱 플레이아웃, 착수시간 준수) ========== */
+var AI_MIN_THINK_MS = 9000;
+var AI_MAX_THINK_MS = 10000;
+var AI_MIN_ITERATIONS = 48;
+var AI_TIME_BUFFER_SEC = 1;
+var AI_CHUNK_SIZE = 24;
+var AI_RAVE_K = 500;
+var AI_UCB_C = 1.7;
+var AI_PLAYOUT_MAX_MOVES = 50;
+var aiThinkState = null;
+
+function aiMovePrior(move) {
+    var r = move.r, c = move.c, captures = move.captures || 0, opp = currentTurn === BLACK ? WHITE : BLACK;
+    var total = blackMoveCount + whiteMoveCount;
+    var openTh = SIZE <= 9 ? 6 : (SIZE <= 13 ? 9 : 12);
+    var isOpen = total < openTh;
+    var cd = SIZE <= 9 ? 3 : (SIZE <= 13 ? 4 : 5);
+    var inCorner = (r <= cd && c <= cd) || (r <= cd && c >= SIZE - 1 - cd) || (r >= SIZE - 1 - cd && c <= cd) || (r >= SIZE - 1 - cd && c >= SIZE - 1 - cd);
+    var onEdge = r === 0 || r === SIZE - 1 || c === 0 || c === SIZE - 1;
+    var isStar = getStarPoints(SIZE).some(function (p) { return p[0] === r && p[1] === c; });
+    var score = 0;
+    if (captures > 0) score += 140 + captures * 40;
+    getNeighbors(r, c).forEach(function (n) {
+        var owner = getGroupOwner(n[0], n[1]);
+        if (owner === currentTurn) {
+            var lib = getLiberties(n[0], n[1], currentTurn);
+            if (lib === 1) score += 75;
+            else if (lib === 2) score += 30;
+            else score += 10;
+        } else if (owner === opp) {
+            var lo = getLiberties(n[0], n[1], opp);
+            if (lo === 2) score += 40;
+            if (lo === 1) score += 18;
+        }
     });
-    const center = (SIZE - 1) / 2; score += (12 - Math.abs(r - center) - Math.abs(c - center)) * 1.5;
-    if (getStarPoints(SIZE).some(([sr, sc]) => sr === r && sc === c)) score += 5;
-    if (r === 0 || r === SIZE - 1 || c === 0 || c === SIZE - 1) score -= 3;
-    return score + Math.random() * 1.5;
-}
-function aiPlay() {
-    if (gameEnded || currentTurn !== aiColor) return;
-    const moves = getValidMoves();
-    if (moves.length === 0) { passTurn(); messageEl.textContent = 'AI가 패스했습니다. 당신 차례입니다'; return; }
-    moves.sort((a, b) => evaluateMove(b) - evaluateMove(a));
-    doPlaceStone(moves[0].r, moves[0].c);
-    if (gameMode === 'ai' && currentTurn === humanColor) messageEl.textContent = '당신 차례입니다';
+    if (isOpen) {
+        if (isStar) score += 100;
+        else if (inCorner) score += 58;
+        else if (onEdge) score += 32;
+        else score -= 32;
+    } else {
+        if (inCorner) score += 15;
+        else if (onEdge) score += 8;
+        else score -= 5;
+        if (isStar) score += 10;
+    }
+    return score + Math.random() * 0.2;
 }
 
-function undoMove() {
+function aiPlayoutScore(move) {
+    if ((move.captures || 0) > 0) return 3;
+    var neighbors = getNeighbors(move.r, move.c);
+    for (var i = 0; i < neighbors.length; i++) {
+        var o = getGroupOwner(neighbors[i][0], neighbors[i][1]);
+        if (o === currentTurn && getLiberties(neighbors[i][0], neighbors[i][1], currentTurn) === 1) return 2;
+        if (o === (currentTurn === BLACK ? WHITE : BLACK) && getLiberties(neighbors[i][0], neighbors[i][1], currentTurn === BLACK ? WHITE : BLACK) === 2) return 1;
+    }
+    return 0;
+}
+
+function aiPlayout(rootKeys) {
+    var depth = 0, moves, m, i, scored = [], N = AI_PLAYOUT_MAX_MOVES;
+    while (depth < N && (moves = getValidMoves()).length > 0) {
+        scored.length = 0;
+        for (i = 0; i < moves.length; i++) {
+            var sc = aiPlayoutScore(moves[i]);
+            if (sc >= 1) scored.push({ move: moves[i], sc: sc });
+        }
+        if (scored.length > 0 && Math.random() < 0.82) {
+            var best = scored[0];
+            for (i = 1; i < scored.length; i++) if (scored[i].sc > best.sc) best = scored[i];
+            var same = scored.filter(function (x) { return x.sc === best.sc; });
+            m = same[Math.floor(Math.random() * same.length)].move;
+        } else {
+            m = moves[Math.floor(Math.random() * moves.length)];
+        }
+        var key = m.r + ',' + m.c;
+        if (rootKeys && rootKeys.hasOwnProperty(key)) rootKeys[key] = true;
+        if (doPlaceStone(m.r, m.c, true)) depth++;
+    }
+    return depth;
+}
+
+function aiUctRaveSelect(rootMoves, rootStats, totalVisits) {
+    var unvisited = [], i, key, st, bestKey = null, bestVal = -1e9;
+    for (i = 0; i < rootMoves.length; i++) {
+        key = rootMoves[i].r + ',' + rootMoves[i].c;
+        st = rootStats[key];
+        if (!st || st.visits === 0) unvisited.push(key);
+    }
+    if (unvisited.length > 0) return unvisited[Math.floor(Math.random() * unvisited.length)];
+    var logN = Math.log(totalVisits + 1);
+    for (i = 0; i < rootMoves.length; i++) {
+        key = rootMoves[i].r + ',' + rootMoves[i].c;
+        st = rootStats[key];
+        var n = st.visits, w = st.wins, rn = st.raveVisits || 0, rw = st.raveWins || 0;
+        var beta = rn / (rn + AI_RAVE_K);
+        var ucb = (1 - beta) * (w / n) + beta * (rn ? rw / rn : 0.5) + AI_UCB_C * Math.sqrt(logN / n);
+        if (ucb > bestVal) { bestVal = ucb; bestKey = key; }
+    }
+    return bestKey;
+}
+
+function tryServerAI(timeRemainingSec) {
+    var body = {
+        size: SIZE,
+        moves: moveHistory.map(function (m) { return { color: m.turn === BLACK ? 'B' : 'W', row: m.row, col: m.col }; }),
+        colorToPlay: aiColor === BLACK ? 'B' : 'W',
+        timeRemainingSec: Math.max(1, Math.floor(timeRemainingSec))
+    };
+    var timeoutMs = Math.max(2000, (timeRemainingSec - 0.5) * 1000);
+    var controller = new AbortController();
+    var t = setTimeout(function () { controller.abort(); }, timeoutMs);
+    return fetch('/api/ai-move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal })
+        .then(function (res) { clearTimeout(t); return res.ok ? res.json() : null; })
+        .catch(function () { clearTimeout(t); return null; });
+}
+
+function applyServerAIMove(result) {
+    if (result.pass) {
+        if (aiColor === BLACK) blackTimeRemaining += timeConfig.byoYomi; else whiteTimeRemaining += timeConfig.byoYomi;
+        consecutivePass++;
+        boardHistory.push(boardSignature());
+        if (boardHistory.length > 2) boardHistory.shift();
+        lastMove = null;
+        currentTurn = currentTurn === BLACK ? WHITE : BLACK;
+        stopTimer();
+        updateTimeDisplay();
+        if (consecutivePass >= 2) { endGame(); return; }
+        clearTerritoryDisplay();
+        if (passCountEl) passCountEl.textContent = '연속 패스 ' + consecutivePass + '회';
+        updateUI();
+        renderStones();
+        messageEl.textContent = 'AI가 패스했습니다. 당신 차례입니다';
+        if (!gameEnded) startTimer();
+        if (currentTurn === aiColor) setTimeout(aiPlay, 500);
+    } else {
+        if (!doPlaceStone(result.row, result.col)) { runMCTSFromStart(); return; }
+        if (aiColor === BLACK) blackTimeRemaining += timeConfig.byoYomi; else whiteTimeRemaining += timeConfig.byoYomi;
+        updateTimeDisplay();
+        messageEl.textContent = '당신 차례입니다';
+        startTimer();
+    }
+}
+
+function runMCTSFromStart() {
+    var moves = getValidMoves();
+    if (moves.length === 0) { passTurn(); messageEl.textContent = 'AI가 패스했습니다. 당신 차례입니다'; return; }
+    moves.sort(function (a, b) { return aiMovePrior(b) - aiMovePrior(a); });
+    var rootLimit = SIZE <= 9 ? 36 : (SIZE <= 13 ? 30 : 26);
+    if (moves.length > rootLimit) moves = moves.slice(0, rootLimit);
+    var rootStats = {};
+    var aiRemainingSec = aiColor === BLACK ? blackTimeRemaining : whiteTimeRemaining;
+    var remainingMs = (aiRemainingSec - AI_TIME_BUFFER_SEC) * 1000;
+    if (remainingMs < 500) remainingMs = 500;
+    var budgetMs = Math.min(remainingMs, Math.max(AI_MIN_THINK_MS, Math.min(AI_MAX_THINK_MS, remainingMs)));
+    aiThinkState = { moves: moves, rootStats: rootStats, deadline: Date.now() + budgetMs, totalVisits: 0, ucbC: AI_UCB_C };
+    setTimeout(aiPlay, 0);
+}
+
+function aiPlay() {
+    if (gameEnded || currentTurn !== aiColor) return;
+    var state = aiThinkState;
+    if (!state) {
+        var timeRemainingSec = (aiColor === BLACK ? blackTimeRemaining : whiteTimeRemaining) - 1;
+        if (timeRemainingSec < 1) timeRemainingSec = 1;
+        tryServerAI(timeRemainingSec).then(function (r) {
+            if (gameEnded || currentTurn !== aiColor) return;
+            if (r && (r.pass || (r.row != null && r.col != null))) { applyServerAIMove(r); return; }
+            runMCTSFromStart();
+        }).catch(function () { if (gameEnded || currentTurn !== aiColor) return; runMCTSFromStart(); });
+        return;
+    }
+    var moves = state.moves, rootStats = state.rootStats, deadline = state.deadline;
+    var totalVisits = state.totalVisits, i, key, mv, mi, k, chunkDone = 0;
+    var rootKeys = {};
+    for (i = 0; i < moves.length; i++) rootKeys[moves[i].r + ',' + moves[i].c] = false;
+    while (chunkDone < AI_CHUNK_SIZE && (Date.now() < deadline || totalVisits < AI_MIN_ITERATIONS) && !gameEnded) {
+        if (totalVisits >= AI_MIN_ITERATIONS && Date.now() >= deadline) break;
+        key = aiUctRaveSelect(moves, rootStats, totalVisits);
+        mv = null;
+        for (mi = 0; mi < moves.length; mi++) if ((moves[mi].r + ',' + moves[mi].c) === key) { mv = moves[mi]; break; }
+        if (!mv || !doPlaceStone(mv.r, mv.c, true)) continue;
+        for (var kk in rootKeys) rootKeys[kk] = false;
+        var depth = 1 + aiPlayout(rootKeys);
+        var score = doCountScore();
+        var aiWins = (aiColor === BLACK && score.blackScore > score.whiteScore) || (aiColor === WHITE && score.whiteScore > score.blackScore);
+        for (k = 0; k < depth; k++) undoMove(true);
+        if (!rootStats[key]) rootStats[key] = { visits: 0, wins: 0, raveVisits: 0, raveWins: 0 };
+        rootStats[key].visits++;
+        rootStats[key].wins += aiWins ? 1 : 0;
+        for (var rk in rootKeys) if (rootKeys[rk]) {
+            if (!rootStats[rk]) rootStats[rk] = { visits: 0, wins: 0, raveVisits: 0, raveWins: 0 };
+            rootStats[rk].raveVisits = (rootStats[rk].raveVisits || 0) + 1;
+            rootStats[rk].raveWins = (rootStats[rk].raveWins || 0) + (aiWins ? 1 : 0);
+        }
+        totalVisits++;
+        chunkDone++;
+    }
+    state.totalVisits = totalVisits;
+    if ((Date.now() < deadline && totalVisits < AI_MIN_ITERATIONS) && !gameEnded) {
+        setTimeout(aiPlay, 0);
+        return;
+    }
+    aiThinkState = null;
+    var bestMove = moves[0];
+    var bestVisits = 0, bestWR = -1;
+    for (i = 0; i < moves.length; i++) {
+        key = moves[i].r + ',' + moves[i].c;
+        var s = rootStats[key];
+        if (!s || s.visits === 0) continue;
+        var wr = s.wins / s.visits;
+        if (s.visits > bestVisits || (s.visits === bestVisits && wr > bestWR)) { bestVisits = s.visits; bestWR = wr; bestMove = moves[i]; }
+    }
+    if (gameEnded) return;
+    doPlaceStone(bestMove.r, bestMove.c);
+    if (aiColor === BLACK) blackTimeRemaining += timeConfig.byoYomi; else whiteTimeRemaining += timeConfig.byoYomi;
+    updateTimeDisplay();
+    if (gameMode === 'ai' && currentTurn === humanColor) { messageEl.textContent = '당신 차례입니다'; startTimer(); }
+}
+
+function undoMove(skipUI) {
     if (moveHistory.length === 0) return;
+    if (countRequestedBy) return;
     const m = moveHistory.pop();
     if (gameEnded) gameEnded = false;
-    consecutivePass = 0; passCountEl.textContent = '';
+    consecutivePass = 0; if (!skipUI) passCountEl.textContent = '';
     board[m.row][m.col] = EMPTY;
     if (m.stone === YELLOW && m.turn === BLACK) yellowAsBlack.delete(m.row + ',' + m.col);
     if (m.stone === YELLOW && m.turn === WHITE) yellowAsWhite.delete(m.row + ',' + m.col);
@@ -211,44 +470,145 @@ function undoMove() {
     currentTurn = m.turn; blackMoveCount = m.blackMoveCount; whiteMoveCount = m.whiteMoveCount;
     lastMove = moveHistory.length > 0 ? [moveHistory[moveHistory.length - 1].row, moveHistory[moveHistory.length - 1].col] : null;
     if (boardHistory.length > 0) boardHistory.pop();
-    messageEl.textContent = ''; clearTerritoryDisplay(); updateUI(); renderStones();
+    if (!skipUI) { messageEl.textContent = ''; clearTerritoryDisplay(); updateUI(); renderStones(); }
 }
 function passTurn() {
     if (gameEnded) return;
+    if (countRequestedBy) return;
     if (gameMode === 'ai' && (!aiGameStarted || currentTurn !== humanColor)) return;
+    var passer = currentTurn;
+    if (passer === BLACK) blackTimeRemaining += timeConfig.byoYomi;
+    else whiteTimeRemaining += timeConfig.byoYomi;
     consecutivePass++;
     boardHistory.push(boardSignature()); if (boardHistory.length > 2) boardHistory.shift();
     lastMove = null; currentTurn = currentTurn === BLACK ? WHITE : BLACK;
+    stopTimer();
+    updateTimeDisplay();
     if (consecutivePass >= 2) { endGame(); return; }
-    clearTerritoryDisplay(); passCountEl.textContent = '연속 패스 ' + consecutivePass + '회';
+    clearDeadStoneMarks(); clearTerritoryDisplay(); if (passCountEl) passCountEl.textContent = '연속 패스 ' + consecutivePass + '회';
     updateUI(); renderStones();
+    if (!gameEnded) startTimer();
     if (gameMode === 'ai' && currentTurn === aiColor) setTimeout(aiPlay, 500);
+}
+function clearDeadStoneMarks() {
+    deadStoneMarks.clear();
+    scoringInspectMode = false;
+    lastScoringView = null;
+}
+function getStoneOwnerAt(r, c) {
+    const v = board[r][c];
+    if (v === BLACK) return BLACK;
+    if (v === WHITE) return WHITE;
+    if (v === YELLOW) {
+        const key = r + ',' + c;
+        if (yellowAsBlack.has(key)) return BLACK;
+        if (yellowAsWhite.has(key)) return WHITE;
+    }
+    return EMPTY;
+}
+function getRawOwnerAt(r, c) {
+    const v = board[r][c];
+    if (v === BLACK) return BLACK;
+    if (v === WHITE) return WHITE;
+    if (v === YELLOW) {
+        const key = r + ',' + c;
+        if (yellowAsBlack.has(key)) return BLACK;
+        if (yellowAsWhite.has(key)) return WHITE;
+    }
+    return EMPTY;
+}
+function estimateYellowOwnerForScoring(r, c, ignoreDeadKey) {
+    let blackAdj = 0, whiteAdj = 0;
+    getNeighbors(r, c).forEach(([nr, nc]) => {
+        const key = nr + ',' + nc;
+        if (deadStoneMarks.has(key) && key !== ignoreDeadKey) return;
+        const owner = getRawOwnerAt(nr, nc);
+        if (owner === BLACK) blackAdj++;
+        else if (owner === WHITE) whiteAdj++;
+    });
+    if (blackAdj !== whiteAdj) return blackAdj > whiteAdj ? BLACK : WHITE;
+    let blackInfluence = 0, whiteInfluence = 0;
+    const radius = SIZE <= 9 ? 4 : SIZE <= 13 ? 5 : 6, decay = 0.72;
+    for (let sr = 0; sr < SIZE; sr++) for (let sc = 0; sc < SIZE; sc++) {
+        const key = sr + ',' + sc;
+        if (deadStoneMarks.has(key) && key !== ignoreDeadKey) continue;
+        const owner = getRawOwnerAt(sr, sc);
+        if (owner !== BLACK && owner !== WHITE) continue;
+        const dist = Math.abs(sr - r) + Math.abs(sc - c);
+        if (dist <= 0 || dist > radius) continue;
+        const influence = Math.pow(decay, dist - 1);
+        if (owner === BLACK) blackInfluence += influence; else whiteInfluence += influence;
+    }
+    if (Math.abs(blackInfluence - whiteInfluence) > 0.001) return blackInfluence > whiteInfluence ? BLACK : WHITE;
+    return getRawOwnerAt(r, c);
+}
+function getScoringOwnerAtPoint(r, c, ignoreDeadKey) {
+    const key = r + ',' + c;
+    if (deadStoneMarks.has(key) && key !== ignoreDeadKey) return EMPTY;
+    const v = board[r][c];
+    if (v === BLACK) return BLACK;
+    if (v === WHITE) return WHITE;
+    if (v === YELLOW) return estimateYellowOwnerForScoring(r, c, ignoreDeadKey);
+    return EMPTY;
+}
+function getDeadStoneCaptureBonus() {
+    let deadBlack = 0, deadWhite = 0;
+    deadStoneMarks.forEach((key) => {
+        const [r, c] = key.split(',').map(Number);
+        const owner = getScoringOwnerAtPoint(r, c, key);
+        if (owner === BLACK) deadBlack += 1;
+        else if (owner === WHITE) deadWhite += 1;
+    });
+    return { deadBlack, deadWhite };
+}
+function toggleDeadStoneMark(r, c) {
+    if (!scoringInspectMode) return false;
+    const owner = getStoneOwnerAt(r, c);
+    if (owner !== BLACK && owner !== WHITE) return false;
+    const key = r + ',' + c;
+    if (deadStoneMarks.has(key)) deadStoneMarks.delete(key); else deadStoneMarks.add(key);
+    renderStones();
+    if (lastScoringView === 'judge') renderJudgePosition();
+    else if (lastScoringView === 'count') countScore();
+    return true;
 }
 function countStones(color) {
     let n = 0;
     for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-        if (board[r][c] === color) n++;
-        else if (board[r][c] === YELLOW && color === BLACK && yellowAsBlack.has(r + ',' + c)) n++;
-        else if (board[r][c] === YELLOW && color === WHITE && yellowAsWhite.has(r + ',' + c)) n++;
+        if (getScoringOwnerAtPoint(r, c) === color) n++;
     }
     return n;
 }
 function doCountScore() {
     const blackTerritory = countTerritory(BLACK), whiteTerritory = countTerritory(WHITE);
     const blackStones = countStones(BLACK), whiteStones = countStones(WHITE);
-    return { blackScore: blackTerritory + blackStones + capturedWhite, whiteScore: whiteTerritory + whiteStones + capturedBlack + 6.5, blackTerritory, whiteTerritory, blackStones, whiteStones };
+    const deadBonus = getDeadStoneCaptureBonus();
+    return {
+        blackScore: blackTerritory + blackStones + capturedWhite + deadBonus.deadWhite,
+        whiteScore: whiteTerritory + whiteStones + capturedBlack + deadBonus.deadBlack + 6.5,
+        blackTerritory, whiteTerritory, blackStones, whiteStones, deadBonus
+    };
 }
 function countScore() {
+    scoringInspectMode = true;
+    lastScoringView = 'count';
     const s = doCountScore();
-    const winner = s.blackScore > s.whiteScore ? '흑' : '백', diff = Math.abs(s.blackScore - s.whiteScore).toFixed(1);
-    messageEl.textContent = '집계산: 흑 ' + s.blackScore.toFixed(1) + ' (집 ' + s.blackTerritory + ' + 돌 ' + s.blackStones + ' + 포로 ' + capturedWhite + ') : 백 ' + s.whiteScore.toFixed(1) + ' (집 ' + s.whiteTerritory + ' + 돌 ' + s.whiteStones + ' + 포로 ' + capturedBlack + ' + 코미 6.5) → ' + winner + '+' + diff;
+    const evalRes = evaluateAdvantageAreas();
+    const blackEstimate = s.blackScore + evalRes.blackAdvScore * 0.7;
+    const whiteEstimate = s.whiteScore + evalRes.whiteAdvScore * 0.7;
+    const winner = blackEstimate > whiteEstimate ? '흑' : '백', diff = Math.abs(blackEstimate - whiteEstimate).toFixed(1);
+    messageEl.textContent = '집계산(확정): 흑 ' + s.blackScore.toFixed(1) + ' (집 ' + s.blackTerritory + ' + 돌 ' + s.blackStones + ' + 포로 ' + capturedWhite + ' + 사석 ' + s.deadBonus.deadWhite + ') : 백 ' + s.whiteScore.toFixed(1) + ' (집 ' + s.whiteTerritory + ' + 돌 ' + s.whiteStones + ' + 포로 ' + capturedBlack + ' + 사석 ' + s.deadBonus.deadBlack + ' + 코미 6.5) / 우세영역 반영 예상: 흑 ' + blackEstimate.toFixed(1) + ' : 백 ' + whiteEstimate.toFixed(1) + ' → ' + winner + '+' + diff;
 }
 function floodTerritoryWithPoints(r, c, visited) {
     if (r < 0 || r >= SIZE || c < 0 || c >= SIZE) return { points: [], touchesBlack: false, touchesWhite: false };
     if (visited[r][c]) return { points: [], touchesBlack: false, touchesWhite: false };
-    if (board[r][c] === BLACK) return { points: [], touchesBlack: true, touchesWhite: false };
-    if (board[r][c] === WHITE) return { points: [], touchesBlack: false, touchesWhite: true };
-    if (board[r][c] === YELLOW) return { points: [], touchesBlack: yellowAsBlack.has(r + ',' + c), touchesWhite: yellowAsWhite.has(r + ',' + c) };
+    const key = r + ',' + c;
+    const isDead = deadStoneMarks.has(key);
+    if (!isDead && board[r][c] !== EMPTY) {
+        const owner = getScoringOwnerAtPoint(r, c);
+        if (owner === BLACK) return { points: [], touchesBlack: true, touchesWhite: false };
+        if (owner === WHITE) return { points: [], touchesBlack: false, touchesWhite: true };
+    }
     visited[r][c] = true;
     let points = [[r, c]], touchesBlack = false, touchesWhite = false;
     getNeighbors(r, c).forEach(([nr, nc]) => {
@@ -260,39 +620,174 @@ function floodTerritoryWithPoints(r, c, visited) {
 function getTerritoryRegions() {
     const visited = Array(SIZE).fill(null).map(() => Array(SIZE).fill(false)), regions = [];
     for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-        if (board[r][c] !== EMPTY || visited[r][c]) continue;
+        if ((board[r][c] !== EMPTY && !deadStoneMarks.has(r + ',' + c)) || visited[r][c]) continue;
         const res = floodTerritoryWithPoints(r, c, visited);
         regions.push(res);
     }
     return regions;
 }
+function getStoneOwnerAtPoint(r, c) {
+    return getScoringOwnerAtPoint(r, c);
+}
+function getEdgeWeight(r, c) {
+    const line = Math.min(r, c, SIZE - 1 - r, SIZE - 1 - c);
+    if (line === 0) return 1.22;
+    if (line === 1) return 1.12;
+    if (line === 2) return 1.05;
+    return 1.0;
+}
+function evaluateAdvantageAreas() {
+    const settledBlack = new Set(), settledWhite = new Set();
+    getTerritoryRegions().forEach(({ points, touchesBlack, touchesWhite }) => {
+        if (touchesBlack && !touchesWhite) points.forEach(([r, c]) => settledBlack.add(r + ',' + c));
+        else if (touchesWhite && !touchesBlack) points.forEach(([r, c]) => settledWhite.add(r + ',' + c));
+    });
+    const radius = SIZE <= 9 ? 4 : SIZE <= 13 ? 5 : 6;
+    const decay = 0.72, advantageThreshold = 0.22, strongThreshold = 0.9;
+    const blackAdvPoints = [], whiteAdvPoints = [];
+    let blackAdvScore = 0, whiteAdvScore = 0;
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+        if (board[r][c] !== EMPTY && !deadStoneMarks.has(r + ',' + c)) continue;
+        const key = r + ',' + c;
+        if (settledBlack.has(key) || settledWhite.has(key)) continue;
+        let blackInfluence = 0, whiteInfluence = 0;
+        for (let sr = 0; sr < SIZE; sr++) for (let sc = 0; sc < SIZE; sc++) {
+            const owner = getStoneOwnerAtPoint(sr, sc);
+            if (owner !== BLACK && owner !== WHITE) continue;
+            const dist = Math.abs(sr - r) + Math.abs(sc - c);
+            if (dist <= 0 || dist > radius) continue;
+            let influence = Math.pow(decay, dist - 1) * getEdgeWeight(r, c);
+            const stoneLine = Math.min(sr, sc, SIZE - 1 - sr, SIZE - 1 - sc);
+            const targetLine = Math.min(r, c, SIZE - 1 - r, SIZE - 1 - c);
+            if (stoneLine <= 1 && targetLine <= 1) influence *= 1.08;
+            if (owner === BLACK) blackInfluence += influence; else whiteInfluence += influence;
+        }
+        const diff = blackInfluence - whiteInfluence, absDiff = Math.abs(diff);
+        if (absDiff < advantageThreshold) continue;
+        const strength = Math.min(1, (absDiff - advantageThreshold) / (strongThreshold - advantageThreshold));
+        if (diff > 0) { blackAdvPoints.push([r, c, strength]); blackAdvScore += strength; }
+        else { whiteAdvPoints.push([r, c, strength]); whiteAdvScore += strength; }
+    }
+    return { settledBlack, settledWhite, blackAdvPoints, whiteAdvPoints, blackAdvScore, whiteAdvScore };
+}
 function getCellAt(r, c) { return boardEl.querySelector('.cell[data-row="' + r + '"][data-col="' + c + '"]'); }
 function clearTerritoryDisplay() { if (!showingTerritory) return; showingTerritory = false; boardEl.querySelectorAll('.cell .territory-dot').forEach(el => el.remove()); }
-function judgePosition() {
-    if (showingTerritory) { clearTerritoryDisplay(); messageEl.textContent = ''; return; }
-    const s = doCountScore(), diff = s.blackScore - s.whiteScore;
-    let msg; if (Math.abs(diff) < 1) msg = '형세판단: 접전 (흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ') · 파랑=흑집, 연한색=백집';
-    else if (diff > 0) msg = '형세판단: 흑 우세 (흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ', +' + diff.toFixed(1) + ') · 파랑=흑집, 연한색=백집';
-    else msg = '형세판단: 백 우세 (흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ', +' + (-diff).toFixed(1) + ') · 파랑=흑집, 연한색=백집';
+function renderJudgePosition() {
+    const s = doCountScore(), evalRes = evaluateAdvantageAreas();
+    const blackEstimate = s.blackScore + evalRes.blackAdvScore * 0.7;
+    const whiteEstimate = s.whiteScore + evalRes.whiteAdvScore * 0.7;
+    const diff = blackEstimate - whiteEstimate;
+    let msg; if (Math.abs(diff) < 1) msg = '형세판단: 접전 (확정 흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ' / 예상 흑 ' + blackEstimate.toFixed(1) + ' : 백 ' + whiteEstimate.toFixed(1) + ') · 진한점=확정집, 옅은점=우세영역';
+    else if (diff > 0) msg = '형세판단: 흑 우세 (확정 흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ' / 예상 +' + diff.toFixed(1) + ') · 진한점=확정집, 옅은점=우세영역';
+    else msg = '형세판단: 백 우세 (확정 흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ' / 예상 +' + (-diff).toFixed(1) + ') · 진한점=확정집, 옅은점=우세영역';
     messageEl.textContent = msg;
     boardEl.querySelectorAll('.cell .territory-dot').forEach(el => el.remove());
-    getTerritoryRegions().forEach(({ points, touchesBlack, touchesWhite }) => {
-        if (touchesBlack && !touchesWhite) points.forEach(([r, c]) => { const cell = getCellAt(r, c); if (cell) { const dot = document.createElement('span'); dot.className = 'territory-dot territory-black-dot'; cell.appendChild(dot); } });
-        else if (touchesWhite && !touchesBlack) points.forEach(([r, c]) => { const cell = getCellAt(r, c); if (cell) { const dot = document.createElement('span'); dot.className = 'territory-dot territory-white-dot'; cell.appendChild(dot); } });
+    evalRes.settledBlack.forEach((key) => {
+        const [r, c] = key.split(',').map(Number);
+        const cell = getCellAt(r, c); if (!cell) return;
+        const dot = document.createElement('span'); dot.className = 'territory-dot territory-black-dot'; cell.appendChild(dot);
+    });
+    evalRes.settledWhite.forEach((key) => {
+        const [r, c] = key.split(',').map(Number);
+        const cell = getCellAt(r, c); if (!cell) return;
+        const dot = document.createElement('span'); dot.className = 'territory-dot territory-white-dot'; cell.appendChild(dot);
+    });
+    evalRes.blackAdvPoints.forEach(([r, c, strength]) => {
+        const cell = getCellAt(r, c); if (!cell) return;
+        const dot = document.createElement('span'); dot.className = 'territory-dot territory-black-adv-dot';
+        dot.style.opacity = String(Math.max(0.28, Math.min(0.78, 0.28 + strength * 0.5)));
+        cell.appendChild(dot);
+    });
+    evalRes.whiteAdvPoints.forEach(([r, c, strength]) => {
+        const cell = getCellAt(r, c); if (!cell) return;
+        const dot = document.createElement('span'); dot.className = 'territory-dot territory-white-adv-dot';
+        dot.style.opacity = String(Math.max(0.28, Math.min(0.78, 0.28 + strength * 0.5)));
+        cell.appendChild(dot);
     });
     showingTerritory = true;
 }
+function judgePosition() {
+    scoringInspectMode = true;
+    lastScoringView = 'judge';
+    if (showingTerritory) { clearTerritoryDisplay(); messageEl.textContent = ''; return; }
+    renderJudgePosition();
+}
+function updateSidebarResult(winnerColor, scoreDiff, isTimeWin) {
+    var wrap = document.getElementById('sidebar-result');
+    var stonesEl = document.getElementById('sidebar-result-stones');
+    var textEl = document.getElementById('sidebar-result-text');
+    if (!wrap || !stonesEl || !textEl) return;
+    var isBlack = winnerColor === 'black';
+    stonesEl.innerHTML = '<div class="sidebar-result-stone ' + winnerColor + ' winner"></div>';
+    var label = (isBlack ? '흑' : '백');
+    if (isTimeWin) textEl.textContent = label + ' 시간승';
+    else if (scoreDiff != null) textEl.textContent = label + ' ' + (scoreDiff === Math.floor(scoreDiff) ? scoreDiff + '집' : scoreDiff.toFixed(1) + '집') + ' 승';
+    else textEl.textContent = label + ' 승';
+    wrap.classList.add('show');
+}
+function hideSidebarResult() {
+    var wrap = document.getElementById('sidebar-result');
+    if (wrap) wrap.classList.remove('show');
+}
 function endGame() {
     gameEnded = true;
-    const s = doCountScore(), winner = s.blackScore > s.whiteScore ? '흑' : '백', diff = Math.abs(s.blackScore - s.whiteScore).toFixed(1);
-    messageEl.textContent = '종료. ' + winner + ' 승 (흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ', ' + winner + '+' + diff + ')';
+    stopTimer();
+    var s = doCountScore(), winnerColor = s.blackScore > s.whiteScore ? 'black' : 'white', winner = winnerColor === 'black' ? '흑' : '백', diff = Math.abs(s.blackScore - s.whiteScore);
+    messageEl.textContent = '종료. ' + winner + ' 승 (흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ', ' + winner + '+' + diff.toFixed(1) + ')';
+    updateSidebarResult(winnerColor, diff, false);
+}
+function showCountRequestUI() {
+    var wrap = document.getElementById('count-request-wrap');
+    var msgEl = document.getElementById('count-request-message');
+    if (!wrap || !msgEl) return;
+    var requester = countRequestedBy === 'black' ? '흑' : '백';
+    var responder = countRequestedBy === 'black' ? '백' : '흑';
+    msgEl.textContent = requester + '이 계가를 신청했습니다. ' + responder + '이 동의하시겠습니까?';
+    wrap.classList.remove('hidden');
+}
+function hideCountRequestUI() {
+    var wrap = document.getElementById('count-request-wrap');
+    if (wrap) wrap.classList.add('hidden');
+}
+function requestCount() {
+    if (gameEnded || countRequestedBy) return;
+    countRequestedBy = currentTurn;
+    showCountRequestUI();
+    if (messageEl) messageEl.textContent = '';
+}
+function agreeCount() {
+    if (!countRequestedBy) return;
+    hideCountRequestUI();
+    countRequestedBy = null;
+    countAndEndGame();
+}
+function refuseCount() {
+    if (!countRequestedBy) return;
+    countRequestedBy = null;
+    hideCountRequestUI();
+    if (messageEl) messageEl.textContent = '계가 신청이 거절되었습니다. 게임을 계속합니다.';
+}
+function countAndEndGame() {
+    if (gameEnded) return;
+    gameEnded = true;
+    stopTimer();
+    var s = doCountScore();
+    var winnerColor = s.blackScore > s.whiteScore ? 'black' : 'white';
+    var winner = winnerColor === 'black' ? '흑' : '백';
+    var diff = Math.abs(s.blackScore - s.whiteScore);
+    messageEl.textContent = '계가 완료. ' + winner + ' ' + (diff === Math.floor(diff) ? diff : diff.toFixed(1)) + '집 승 (흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ')';
+    updateSidebarResult(winnerColor, diff, false);
 }
 function floodTerritory(r, c, visited) {
     if (r < 0 || r >= SIZE || c < 0 || c >= SIZE) return { territory: 0, touchesBlack: false, touchesWhite: false };
     if (visited[r][c]) return { territory: 0, touchesBlack: false, touchesWhite: false };
-    if (board[r][c] === BLACK) return { territory: 0, touchesBlack: true, touchesWhite: false };
-    if (board[r][c] === WHITE) return { territory: 0, touchesBlack: false, touchesWhite: true };
-    if (board[r][c] === YELLOW) return { territory: 0, touchesBlack: yellowAsBlack.has(r + ',' + c), touchesWhite: yellowAsWhite.has(r + ',' + c) };
+    const key = r + ',' + c;
+    const isDead = deadStoneMarks.has(key);
+    if (!isDead && board[r][c] !== EMPTY) {
+        const owner = getScoringOwnerAtPoint(r, c);
+        if (owner === BLACK) return { territory: 0, touchesBlack: true, touchesWhite: false };
+        if (owner === WHITE) return { territory: 0, touchesBlack: false, touchesWhite: true };
+    }
     visited[r][c] = true;
     let territory = 1, touchesBlack = false, touchesWhite = false;
     getNeighbors(r, c).forEach(([nr, nc]) => {
@@ -305,7 +800,7 @@ function countTerritory(color) {
     const visited = Array(SIZE).fill(null).map(() => Array(SIZE).fill(false));
     let total = 0;
     for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-        if (board[r][c] !== EMPTY || visited[r][c]) continue;
+        if ((board[r][c] !== EMPTY && !deadStoneMarks.has(r + ',' + c)) || visited[r][c]) continue;
         const res = floodTerritory(r, c, visited);
         if (res.touchesBlack && !res.touchesWhite) total += color === BLACK ? res.territory : 0;
         if (res.touchesWhite && !res.touchesBlack) total += color === WHITE ? res.territory : 0;
@@ -322,7 +817,7 @@ function updateUI() {
     turnEl.textContent = txt; capBlackEl.textContent = capturedBlack; capWhiteEl.textContent = capturedWhite;
 }
 function renderStones() {
-    boardEl.querySelectorAll('.cell').forEach(cell => { cell.querySelector('.stone')?.remove(); cell.querySelector('.yellow-stone-cross')?.remove(); });
+    boardEl.querySelectorAll('.cell').forEach(cell => { cell.querySelector('.stone')?.remove(); cell.querySelector('.yellow-stone-cross')?.remove(); cell.querySelector('.dead-stone-x')?.remove(); });
     for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
         if (board[r][c] === EMPTY) continue;
         const cell = boardEl.children[r * SIZE + c];
@@ -332,13 +827,28 @@ function renderStones() {
         stone.className = 'stone ' + stoneType;
         if (lastMove && lastMove[0] === r && lastMove[1] === c) stone.classList.add('last');
         cell.appendChild(stone);
+        if (deadStoneMarks.has(r + ',' + c)) {
+            const x = document.createElement('div');
+            x.className = 'dead-stone-x';
+            x.textContent = 'X';
+            cell.appendChild(x);
+        }
     }
 }
 function resetGame() {
     currentTurn = BLACK; lastMove = null; capturedBlack = 0; capturedWhite = 0; consecutivePass = 0; gameEnded = false;
+    countRequestedBy = null;
+    aiThinkState = null;
     if (gameMode === 'ai') aiGameStarted = true;
     boardHistory = []; moveHistory = []; blackMoveCount = 0; whiteMoveCount = 0; yellowAsBlack = new Set(); yellowAsWhite = new Set();
-    messageEl.textContent = ''; passCountEl.textContent = '';
+    clearDeadStoneMarks();
+    blackTimeRemaining = timeConfig.base;
+    whiteTimeRemaining = timeConfig.base;
+    stopTimer();
+    updateTimeDisplay();
+    messageEl.textContent = ''; if (passCountEl) passCountEl.textContent = '';
+    hideSidebarResult();
+    hideCountRequestUI();
     updateUI(); initBoard();
 }
 
