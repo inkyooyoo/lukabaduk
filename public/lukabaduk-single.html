@@ -77,10 +77,44 @@
         .count-request-message { font-size: 0.8rem; font-weight: 700; color: #5d4e37; margin-bottom: 10px; }
         .count-request-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
         .back-btn { margin-top: 12px; font-size: 0.72rem; padding: 6px 12px; }
+        @media (max-width: 768px) {
+            .screen-game { width: 100%; max-width: 100%; }
+            .game-area {
+                flex-direction: column;
+                align-items: center;
+                justify-content: flex-start;
+                gap: 12px;
+                width: 100%;
+            }
+            .game-left {
+                width: 100%;
+                align-items: center;
+            }
+            .game-right {
+                width: 100%;
+                min-width: 0;
+                gap: 10px;
+            }
+            .sidebar-time {
+                width: 100%;
+                flex-direction: row;
+                justify-content: center;
+                flex-wrap: wrap;
+                gap: 14px;
+            }
+            .sidebar-time-row { font-size: 0.95rem; }
+            .sidebar-result {
+                width: min(100%, 360px);
+                margin: 0 auto;
+            }
+            .info { gap: 10px; justify-content: center; }
+            .buttons { width: 100%; justify-content: center; }
+            .board-wrap { margin: 0 auto; }
+        }
     </style>
 </head>
 <body>
-    <a href="/lukabaduk.html" class="back-link">← 경기하기로</a>
+    <a href="/lukabaduk.html" class="back-link">&lt; 경기하기로</a>
     <div id="screen-start" class="screen">
         <h1>혼자두기</h1>
         <div class="board-size">
