@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "id": "e726534d-d16a-4010-8ce5-a1030545c892",
+      "username": "inq2000",
+      "passwordHash": "510fd08c2f3aaebcb35b73a58963bb26cfa57a7fafe142102cb58e6593bd4b1912334b216cc8fa7d370eb114221f3af104373ab9b233ae22d2505d9c4d96e698"
+    },
+    {
+      "id": "8696a888-d422-4335-b59a-6fbc59959a3a",
+      "username": "inq2001",
+      "passwordHash": "510fd08c2f3aaebcb35b73a58963bb26cfa57a7fafe142102cb58e6593bd4b1912334b216cc8fa7d370eb114221f3af104373ab9b233ae22d2505d9c4d96e698"
+    }
+  ]
+}

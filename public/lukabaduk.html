@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>루카바둑 - 온라인 대국</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Noto Sans KR', sans-serif; min-height: 100vh; background: linear-gradient(180deg, #f5e6d3 0%, #e8d5c4 100%); display: flex; flex-direction: column; align-items: center; padding: 16px 12px; padding-top: calc(56px + env(safe-area-inset-top, 0)); }
+        /* 상단 네비 (online-go 스타일) */
+        .game-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(93, 78, 55, 0.95); color: #f5e6d3; display: flex; align-items: center; justify-content: space-between; gap: 0; padding: 0 12px; min-height: 48px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); flex-wrap: wrap; }
+        .game-nav-inner { display: flex; align-items: center; flex: 1; min-width: 0; }
+        .game-nav-links { display: flex; align-items: center; gap: 0; flex: 1; min-width: 0; }
+        .game-nav a { color: #f5e6d3; text-decoration: none; font-weight: 600; font-size: 0.9rem; padding: 0 16px; min-height: 48px; display: flex; align-items: center; border-bottom: 3px solid transparent; white-space: nowrap; }
+        .game-nav a:hover { background: rgba(255,255,255,0.1); }
+        .game-nav a.active { border-bottom-color: #daa84b; }
+        .game-nav .brand { margin-right: 24px; font-weight: 800; font-size: 1rem; flex-shrink: 0; }
+        .game-nav .spacer { flex: 1; min-width: 12px; }
+        .game-nav .back-to-site { position: static; background: transparent; box-shadow: none; padding: 0 12px; font-size: 0.8rem; }
+        .game-nav .back-to-site:hover { background: rgba(255,255,255,0.1); }
+        /* 모바일: 햄버거 버튼 */
+        .game-nav-toggle { display: none; background: none; border: none; color: #f5e6d3; padding: 8px; cursor: pointer; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
+        .game-nav-toggle:focus { outline: none; }
+        .game-nav-toggle-bar { display: block; width: 22px; height: 2px; background: #f5e6d3; margin: 5px 0; border-radius: 1px; transition: transform 0.2s; }
+        .game-nav-toggle.open .game-nav-toggle-bar:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+        .game-nav-toggle.open .game-nav-toggle-bar:nth-child(2) { opacity: 0; }
+        .game-nav-toggle.open .game-nav-toggle-bar:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+        /* 모바일: 드롭다운 메뉴 */
+        .game-nav-drawer { display: none; width: 100%; background: rgba(93, 78, 55, 0.98); padding: 0 12px 16px; border-top: 1px solid rgba(255,255,255,0.1); }
+        .game-nav-drawer.open { display: flex; flex-direction: column; gap: 0; }
+        .game-nav-drawer a { width: 100%; padding: 14px 12px; min-height: auto; font-size: 1rem; border-bottom: none; border-radius: 6px; }
+        .game-nav-drawer a.active { background: rgba(218, 168, 75, 0.25); }
+        .game-nav-drawer .auth-nav { display: flex; flex-direction: column; gap: 0; }
+        .game-nav-drawer .auth-nav a { padding: 14px 12px; }
+        @media (max-width: 768px) {
+            .game-nav { padding: 0 8px; padding-top: env(safe-area-inset-top, 0); flex-wrap: wrap; }
+            .game-nav-inner { flex-wrap: nowrap; justify-content: space-between; width: 100%; }
+            .game-nav-links { display: none; }
+            .game-nav-toggle { display: flex; flex-direction: column; }
+            .game-nav-drawer { width: 100%; order: 10; }
+            .game-nav-drawer.open { display: flex; }
+        }
+        /* 본문 */
+        h1 { font-size: 1.15rem; color: #5d4e37; margin-bottom: 6px; }
+        .info { display: flex; gap: 14px; margin-bottom: 8px; font-size: 0.75rem; flex-wrap: wrap; justify-content: center; }
+        .info span { font-weight: 700; }
+        .board-wrap { background: #c4a574; padding: 12px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.3); }
+        .board { display: grid; background: #daa84b; position: relative; overflow: visible; }
+        .cell { display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; overflow: visible; }
+        .cell::before { content: ''; position: absolute; width: 1px; height: 100%; left: 50%; background: #333; }
+        .cell::after { content: ''; position: absolute; height: 1px; width: 100%; top: 50%; background: #333; }
+        .cell.edge-top::before { height: 50%; top: 50%; }
+        .cell.edge-bottom::before { height: 50%; bottom: 50%; top: auto; }
+        .cell.edge-left::after { width: 50%; left: 50%; }
+        .cell.edge-right::after { width: 50%; right: 50%; left: auto; }
+        .cell.disabled { cursor: not-allowed; }
+        .stone { width: 92%; height: 92%; border-radius: 50%; z-index: 2; pointer-events: none; }
+        .stone.black, .stone.white, .stone.yellow { background-size: cover; }
+        .stone.black { background: radial-gradient(circle at 28% 28%, #6a6a6a 0%, #3a3a3a 20%, #1f1f1f 45%, #0a0a0a 75%, #000 100%); box-shadow: inset 4px 4px 10px rgba(255,255,255,0.28), inset -3px -3px 8px rgba(0,0,0,0.7), 0 5px 10px rgba(0,0,0,0.5); }
+        .stone.white { background: radial-gradient(circle at 28% 28%, #fff 0%, #f0f0f0 15%, #d8d8d8 40%, #b8b8b8 70%, #9a9a9a 100%); box-shadow: inset 5px 5px 12px rgba(255,255,255,0.95), inset -2px -2px 6px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.28); }
+        .stone.yellow { background: radial-gradient(circle at 28% 28%, #f5e0c4 0%, #e8b878 18%, #d49250 45%, #6b4423 72%, #2a1810 100%); box-shadow: inset 4px 4px 10px rgba(255,248,235,0.5), inset -3px -3px 8px rgba(0,0,0,0.32), 0 5px 10px rgba(0,0,0,0.35); }
+        .stone.last { box-shadow: 0 0 0 1.5px #c0392b; }
+        .stone.white.last, .stone.yellow.last { box-shadow: inset -2px -2px 6px rgba(0,0,0,0.12), 0 0 0 1.5px #c0392b; }
+        .yellow-stone-cross { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 190%; height: 190%; background: transparent; background-image: linear-gradient(#daa84b,#daa84b), linear-gradient(#daa84b,#daa84b); background-size: 100% 2.5px, 2.5px 100%; background-position: center; background-repeat: no-repeat; opacity: 0.9; pointer-events: none; z-index: 1; }
+        .star-dot { position: absolute; width: 4px; height: 4px; background: #333; border-radius: 50%; z-index: 1; }
+        .cell .territory-dot { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 28%; height: 28%; border-radius: 50%; pointer-events: none; z-index: 1; }
+        .cell .territory-dot.territory-black-dot { background: rgba(60, 90, 150, 0.85); }
+        .cell .territory-dot.territory-white-dot { background: rgba(255, 248, 220, 0.9); box-shadow: 0 0 0 1px rgba(0,0,0,0.15); }
+        .buttons { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
+        .btn { padding: 6px 12px; font-size: 0.72rem; font-family: 'Noto Sans KR', sans-serif; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; }
+        .btn-primary { background: #8b6914; color: white; }
+        .btn-primary:hover { background: #6b5010; }
+        .btn-secondary { background: #ddd; color: #333; }
+        .btn-secondary:hover { background: #ccc; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .message { margin-top: 8px; font-size: 0.7rem; font-weight: 700; min-height: 18px; text-align: center; line-height: 1.35; }
+        .board-size { margin: 10px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .board-size span { font-weight: 700; font-size: 0.8rem; }
+        .board-size .btn { padding: 6px 12px; font-size: 0.72rem; }
+        .board-size .btn.active { background: #8b6914; color: white; }
+        .screen { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 520px; }
+        .screen.hidden { display: none !important; }
+        .screen-game { width: 100%; max-width: 520px; display: flex; flex-direction: row; align-items: flex-start; gap: 16px; }
+        .game-sidebar { flex-shrink: 0; padding: 10px 12px; background: rgba(93,78,55,0.12); border-radius: 8px; width: 100px; }
+        .game-sidebar-item { font-size: 0.8rem; font-weight: 700; color: #5d4e37; margin-bottom: 10px; }
+        .game-sidebar-item:last-child { margin-bottom: 0; }
+        .sidebar-my-color { display: flex; align-items: center; gap: 6px; }
+        .sidebar-stone { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; }
+        .sidebar-stone.black { background: radial-gradient(circle at 28% 28%, #6a6a6a 0%, #3a3a3a 20%, #1f1f1f 45%, #0a0a0a 75%, #000 100%); box-shadow: inset 2px 2px 6px rgba(255,255,255,0.28), 0 2px 6px rgba(0,0,0,0.4); }
+        .sidebar-stone.white { background: radial-gradient(circle at 28% 28%, #fff 0%, #f0f0f0 15%, #d8d8d8 40%, #b8b8b8 70%, #9a9a9a 100%); box-shadow: inset 2px 2px 6px rgba(255,255,255,0.95), 0 2px 6px rgba(0,0,0,0.25); border: 1px solid #bbb; }
+        .sidebar-my-label { font-size: 0.75rem; }
+        #sidebar-turn { display: block; min-width: 9.2em; box-sizing: border-box; }
+        .game-sidebar .turn-mine { color: #1a7f37; }
+        .game-sidebar .turn-opponent { color: #666; }
+        .game-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; }
+        .back-btn { margin-top: 12px; font-size: 0.72rem; padding: 6px 12px; }
+        .stone-choosing { margin-top: 16px; padding: 16px; background: rgba(93,78,55,0.12); border: 2px solid rgba(93,78,55,0.3); border-radius: 10px; }
+        .stone-choosing.hidden { display: none !important; }
+        .stone-choosing-label { font-size: 1rem; font-weight: 800; color: #5d4e37; margin-bottom: 6px; }
+        .stone-choosing-prompt { font-size: 0.9rem; font-weight: 700; color: #5d4e37; margin-bottom: 12px; }
+        .stone-choosing-btns { display: flex; gap: 14px; justify-content: center; }
+        .btn-stone-black { min-width: 72px; padding: 10px 16px; font-size: 0.9rem; background: #2d2d2d; color: #fff; }
+        .btn-stone-white { min-width: 72px; padding: 10px 16px; font-size: 0.9rem; background: #f0f0f0; color: #333; border: 2px solid #999; }
+        #waiting-message.hidden, .waiting-hint.hidden { display: none !important; }
+        .room-info { margin: 8px 0; padding: 8px; background: rgba(255,255,255,0.5); border-radius: 6px; font-size: 0.7rem; }
+        .room-code { font-weight: 700; font-size: 0.9rem; letter-spacing: 2px; margin: 4px 0; }
+        .waiting-hint { font-size: 0.75rem; color: #666; margin-top: 8px; }
+        .input-group { margin: 12px 0; display: flex; gap: 8px; align-items: center; }
+        .input-group input { padding: 6px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.8rem; }
+        .match-status { margin-top: 10px; font-size: 0.75rem; min-height: 1.2em; color: #c0392b; font-weight: 600; }
+        .match-status.ok { color: #27ae60; }
+        .match-status code { background: rgba(0,0,0,0.06); padding: 1px 4px; border-radius: 3px; font-size: 0.85em; }
+        .match-menu-title { font-size: 1rem; color: #5d4e37; margin: 18px 0 10px; padding-bottom: 4px; border-bottom: 1px solid rgba(93,78,55,0.2); }
+        .match-menu-title:first-of-type { margin-top: 12px; }
+        .available-rooms-desc { font-size: 0.8rem; color: #666; margin: 0 0 8px; }
+        .available-rooms-list { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+        .available-rooms-list .room-chip { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(255,255,255,0.9); border-radius: 8px; border: 1px solid rgba(93,78,55,0.2); cursor: pointer; transition: background 0.2s; }
+        .available-rooms-list .room-chip:hover { background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .available-rooms-list .room-chip .room-chip-id { font-weight: 700; letter-spacing: 1px; }
+        .available-rooms-list .room-chip .room-chip-meta { font-size: 0.75rem; color: #666; }
+        .available-rooms-empty { font-size: 0.8rem; color: #666; margin: 8px 0 12px; }
+        .match-code-details { margin-top: 12px; font-size: 0.85rem; }
+        .match-code-details summary { cursor: pointer; color: #5d4e37; }
+        .match-code-details .input-group { margin-top: 8px; }
+        /* 대국실 목록 - 미니보드(248px)에 맞춘 레이아웃 */
+        #section-games { max-width: 860px; }
+        .lobby-title { font-size: 1.1rem; color: #5d4e37; margin-bottom: 14px; }
+        .lobby-limit { font-size: 0.8rem; color: #888; margin-top: 6px; margin-bottom: 14px; }
+        .room-list { width: 100%; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+        @media (max-width: 640px) { .room-list { grid-template-columns: 1fr; } }
+        .room-list li { margin: 0; min-width: 0; }
+        .room-card { display: flex; flex-direction: column; padding: 12px; background: rgba(255,255,255,0.85); border-radius: 12px; border: 1px solid rgba(93,78,55,0.25); cursor: pointer; transition: background 0.2s, box-shadow 0.2s; min-width: 0; }
+        .room-card:hover { background: rgba(255,255,255,0.98); box-shadow: 0 6px 16px rgba(0,0,0,0.12); }
+        .room-card.full { cursor: default; }
+        .room-card.full:hover { background: rgba(255,255,255,0.9); }
+        .room-card .room-id { font-weight: 700; letter-spacing: 1px; font-size: 0.95rem; }
+        .room-card .room-meta { font-size: 0.75rem; color: #666; margin-top: 4px; }
+        .room-card .room-players { font-size: 0.8rem; margin-top: 6px; }
+        .room-card .mini-board-wrap { margin-top: 10px; display: flex; justify-content: center; align-items: center; min-height: 264px; background: #e8d5c4; border-radius: 8px; padding: 10px; }
+        .room-card .mini-board-canvas { display: block; border-radius: 6px; width: 248px; height: 248px; }
+        .room-card .mini-board .mini-cell { width: 100%; aspect-ratio: 1; position: relative; display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
+        .room-card .mini-board .mini-cell::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #333; transform: translateX(-50%); }
+        .room-card .mini-board .mini-cell::after { content: ''; position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: #333; transform: translateY(-50%); }
+        .room-card .mini-board .mini-cell.edge-t::before { top: 50%; height: 50%; }
+        .room-card .mini-board .mini-cell.edge-b::before { bottom: 50%; height: 50%; }
+        .room-card .mini-board .mini-cell.edge-l::after { left: 50%; width: 50%; }
+        .room-card .mini-board .mini-cell.edge-r::after { right: 50%; width: 50%; }
+        .room-card .mini-board .mini-stone { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 50%; z-index: 2; pointer-events: none; }
+        .room-card .mini-board .mini-stone.black { background: #1a1a1a; box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+        .room-card .mini-board .mini-stone.white { background: #f5f5f5; border: 1px solid #999; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+        .room-card .mini-board .mini-stone.yellow { background: #e6c200; border: 1px solid #b39800; box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
+        .room-card-players { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding: 0 4px; font-size: 0.75rem; color: #444; }
+        .room-card-player { display: inline-flex; align-items: center; gap: 6px; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .room-card-player.white { justify-content: flex-start; }
+        .room-card-player.black { justify-content: flex-end; }
+        .room-card-stone { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .room-card-stone-white { background: #f5f5f5; border: 1px solid #999; }
+        .room-card-stone-black { background: #1a1a1a; }
+        .room-card-name { overflow: hidden; text-overflow: ellipsis; }
+        .lobby-empty { color: #666; font-size: 0.85rem; padding: 24px; text-align: center; }
+        .lobby-limit { font-size: 0.75rem; color: #888; margin-top: 8px; }
+        /* 배우기 */
+        .learn-content { text-align: left; width: 100%; padding: 0 8px; }
+        .learn-content h2 { font-size: 0.95rem; color: #5d4e37; margin: 16px 0 8px; }
+        .learn-content p, .learn-content ul { font-size: 0.8rem; line-height: 1.6; color: #444; margin-bottom: 8px; }
+        .learn-content ul { padding-left: 20px; }
+        /* 로그인/회원가입 */
+        .auth-nav { display: flex; align-items: center; gap: 8px; }
+        .auth-nav .user-name { font-size: 0.85rem; color: #f5e6d3; }
+        .auth-panel { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; display: none; align-items: center; justify-content: center; padding: 20px; }
+        .auth-panel.show { display: flex; }
+        .auth-box { background: #fff; border-radius: 12px; padding: 24px; max-width: 320px; width: 100%; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+        .auth-box h2 { font-size: 1.1rem; color: #5d4e37; margin-bottom: 16px; }
+        .auth-box .input-group { margin-bottom: 12px; }
+        .auth-box label { display: block; font-size: 0.8rem; font-weight: 600; color: #5d4e37; margin-bottom: 4px; }
+        .auth-box input { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.9rem; box-sizing: border-box; }
+        .auth-box .auth-error { font-size: 0.8rem; color: #c0392b; margin-bottom: 8px; min-height: 1.2em; }
+        .auth-box .auth-btns { display: flex; gap: 8px; margin-top: 16px; }
+        .auth-box .auth-tabs { display: flex; gap: 0; margin-bottom: 16px; }
+        .auth-box .auth-tabs button { padding: 8px 16px; border: 1px solid #ccc; background: #f5f5f5; cursor: pointer; font-size: 0.85rem; }
+        .auth-box .auth-tabs button.active { background: #8b6914; color: #fff; border-color: #8b6914; }
+        .auth-login-wrap, .auth-register-wrap { display: none; }
+        .auth-login-wrap.show, .auth-register-wrap.show { display: block; }
+        .login-required-msg { background: rgba(139,105,20,0.12); border: 1px solid rgba(139,105,20,0.3); border-radius: 8px; padding: 12px; margin-bottom: 14px; font-size: 0.85rem; color: #5d4e37; }
+    </style>
+</head>
+<body>
+    <nav class="game-nav">
+        <div class="game-nav-inner">
+            <span class="brand">루카바둑</span>
+            <div class="game-nav-links">
+                <a href="#" id="nav-learn" onclick="showMainSection('learn'); closeMobileNav(); return false;">배우기</a>
+                <a href="#" id="nav-match" class="active" onclick="showMainSection('match'); closeMobileNav(); return false;">경기하기</a>
+                <a href="#" id="nav-games" onclick="showMainSection('games'); closeMobileNav(); return false;">대국실현황</a>
+                <a href="/lukabaduk-single.html" id="nav-single">혼자두기</a>
+                <span class="spacer"></span>
+                <span class="auth-nav" id="auth-nav">
+                    <a href="#" id="nav-login" onclick="showAuthPanel('login'); closeMobileNav(); return false;">로그인</a>
+                    <a href="#" id="nav-register" onclick="showAuthPanel('register'); closeMobileNav(); return false;">회원가입</a>
+                </span>
+                <span class="auth-nav" id="auth-nav-logged" style="display:none;">
+                    <span class="user-name" id="nav-username"></span>
+                    <a href="#" onclick="doLogout(); closeMobileNav(); return false;">로그아웃</a>
+                </span>
+                <a href="/" class="back-to-site">메인으로</a>
+            </div>
+            <button type="button" class="game-nav-toggle" id="game-nav-toggle" aria-label="메뉴 열기" onclick="toggleMobileNav()">
+                <span class="game-nav-toggle-bar"></span>
+                <span class="game-nav-toggle-bar"></span>
+                <span class="game-nav-toggle-bar"></span>
+            </button>
+        </div>
+        <div class="game-nav-drawer" id="game-nav-drawer">
+            <a href="#" data-section="learn" onclick="showMainSection('learn'); closeMobileNav(); return false;">배우기</a>
+            <a href="#" data-section="match" class="active" onclick="showMainSection('match'); closeMobileNav(); return false;">경기하기</a>
+            <a href="#" data-section="games" onclick="showMainSection('games'); closeMobileNav(); return false;">대국실현황</a>
+            <a href="/lukabaduk-single.html" onclick="closeMobileNav();">혼자두기</a>
+            <span class="auth-nav" id="drawer-auth-guest">
+                <a href="#" onclick="showAuthPanel('login'); closeMobileNav(); return false;">로그인</a>
+                <a href="#" onclick="showAuthPanel('register'); closeMobileNav(); return false;">회원가입</a>
+            </span>
+            <span class="auth-nav" id="drawer-auth-logged" style="display:none;">
+                <span class="user-name" id="drawer-username"></span>
+                <a href="#" onclick="doLogout(); closeMobileNav(); return false;">로그아웃</a>
+            </span>
+            <a href="/" onclick="closeMobileNav();">메인으로</a>
+        </div>
+    </nav>
+
+    <div class="auth-panel" id="auth-panel" onclick="if(event.target===this) hideAuthPanel()">
+        <div class="auth-box" onclick="event.stopPropagation()">
+            <div class="auth-tabs">
+                <button type="button" id="auth-tab-login" class="active" onclick="switchAuthTab('login')">로그인</button>
+                <button type="button" id="auth-tab-register" onclick="switchAuthTab('register')">회원가입</button>
+            </div>
+            <div class="auth-login-wrap show" id="auth-login-wrap">
+                <h2>로그인</h2>
+                <p class="auth-error" id="auth-login-error"></p>
+                <div class="input-group"><label>아이디</label><input type="text" id="login-username" placeholder="아이디"></div>
+                <div class="input-group"><label>비밀번호</label><input type="password" id="login-password" placeholder="비밀번호"></div>
+                <div class="auth-btns"><button type="button" class="btn btn-primary" onclick="doLogin()">로그인</button><button type="button" class="btn btn-secondary" onclick="hideAuthPanel()">취소</button></div>
+            </div>
+            <div class="auth-register-wrap" id="auth-register-wrap">
+                <h2>회원가입</h2>
+                <p class="auth-error" id="auth-register-error"></p>
+                <div class="input-group"><label>아이디</label><input type="text" id="register-username" placeholder="2자 이상"></div>
+                <div class="input-group"><label>비밀번호</label><input type="password" id="register-password" placeholder="4자 이상"></div>
+                <div class="auth-btns"><button type="button" class="btn btn-primary" onclick="doRegister()">가입</button><button type="button" class="btn btn-secondary" onclick="hideAuthPanel()">취소</button></div>
+            </div>
+        </div>
+    </div>
+
+    <section id="section-match" class="screen">
+        <h1>경기하기</h1>
+        <div class="login-required-msg" id="login-required-msg" style="display:none;">경기는 로그인 후 이용할 수 있습니다. 위 메뉴에서 <strong>로그인</strong> 또는 <strong>회원가입</strong>을 해 주세요.</div>
+
+        <h2 class="match-menu-title">방 만들기</h2>
+        <div class="board-size">
+            <span>판 크기:</span>
+            <button class="btn btn-secondary active" id="size-9" onclick="setBoardSize(9)">9×9</button>
+            <button class="btn btn-secondary" id="size-13" onclick="setBoardSize(13)">13×13</button>
+            <button class="btn btn-secondary" id="size-19" onclick="setBoardSize(19)">19×19</button>
+        </div>
+        <div style="margin: 16px 0;">
+            <button class="btn btn-primary" id="create-room-btn" onclick="createRoom()">방 만들기</button>
+        </div>
+
+        <h2 class="match-menu-title">입장하기</h2>
+        <p class="available-rooms-desc">참가 가능한 빈방을 클릭하면 바로 입장합니다.</p>
+        <ul class="available-rooms-list" id="match-available-rooms"></ul>
+        <p class="available-rooms-empty" id="match-available-empty" style="display:none;">대기 중인 빈방이 없습니다. 위에서 방을 만들어 보세요.</p>
+        <details class="match-code-details">
+            <summary>방 코드로 입장 (초대 링크 등)</summary>
+            <div class="input-group">
+                <input type="text" id="room-code-input" placeholder="방 코드 입력" maxlength="10">
+                <button class="btn btn-primary" onclick="joinRoom()">방 입장</button>
+            </div>
+        </details>
+
+        <p class="match-status" id="match-status"></p>
+        <p class="lobby-limit">동시 대국실 최대 6개</p>
+    </section>
+
+    <section id="section-games" class="screen hidden">
+        <h1 class="lobby-title">대국실현황</h1>
+        <p class="lobby-limit">참가 가능한 방 목록 (최대 6개) · 클릭하여 입장</p>
+        <ul class="room-list" id="room-list"></ul>
+        <p class="lobby-empty" id="lobby-empty" style="display:none;">진행 중인 대국실이 없습니다. 경기하기에서 방을 만들어 보세요.</p>
+    </section>
+
+    <section id="section-learn" class="screen hidden">
+        <h1>배우기</h1>
+        <div class="learn-content">
+            <h2>루카바둑이란?</h2>
+            <p>기존 바둑에 첫 수를 황색돌로 표시하는 등 새로운 재미를 더한 바둑입니다.</p>
+            <h2>기본 규칙</h2>
+            <ul>
+                <li>흑·백이 번갈아 착수합니다.</li>
+                <li>흑의 첫 수, 백의 첫 수는 황색돌로 표시됩니다.</li>
+                <li>빈 칸에만 둘 수 있고, 상대 돌을 포위하면 잡습니다.</li>
+                <li>자신의 돌이 전부 잡히는 수(자충)는 둘 수 없습니다.</li>
+                <li>직전과 같은 모양이 되는 수(코)는 둘 수 없습니다.</li>
+                <li>연속 패스 두 번이면 게임 종료 후 집으로 승패를 겁니다.</li>
+            </ul>
+            <h2>온라인 대국</h2>
+            <p><strong>경기하기</strong>에서 방을 만들거나 방 코드로 입장한 뒤, 상대와 실시간으로 대국할 수 있습니다. <strong>대국실현황</strong>에서는 진행 중인 대국을 보며 방에 입장할 수 있습니다.</p>
+        </div>
+    </section>
+
+    <div id="screen-waiting" class="screen hidden">
+        <h1 id="waiting-screen-title">대기 중...</h1>
+        <div class="room-info">
+            <div>방 코드: <span class="room-code" id="waiting-room-code"></span></div>
+            <div id="waiting-message">상대방 입장 대기 중...</div>
+            <p class="waiting-hint" id="waiting-hint">상대가 입장하면 <strong>돌가르기</strong>가 나타납니다.</p>
+        </div>
+        <div id="stone-choosing-wrap" class="stone-choosing hidden">
+            <p class="stone-choosing-label">돌가르기</p>
+            <p class="stone-choosing-prompt" id="stone-choosing-prompt">흑 또는 백을 선택하세요</p>
+            <div class="stone-choosing-btns">
+                <button type="button" class="btn btn-stone-black" onclick="chooseColor(1)">흑</button>
+                <button type="button" class="btn btn-stone-white" onclick="chooseColor(2)">백</button>
+            </div>
+        </div>
+        <button class="btn btn-secondary back-btn" onclick="goToStart()">나가기</button>
+    </div>
+
+    <div id="screen-game" class="screen hidden screen-game">
+        <aside class="game-sidebar">
+            <div class="game-sidebar-item sidebar-my-color">
+                <span class="sidebar-stone" id="sidebar-stone"></span>
+                <span class="sidebar-my-label">나</span>
+            </div>
+            <div class="game-sidebar-item" id="sidebar-turn">차례: －</div>
+        </aside>
+        <div class="game-main">
+            <h1>대국</h1>
+            <div class="room-info">
+                <div>방 코드: <span class="room-code" id="game-room-code"></span></div>
+            </div>
+            <div class="info">
+                <span>흑 포로: <span id="cap-black">0</span></span>
+                <span>백 포로: <span id="cap-white">0</span></span>
+                <span id="pass-count"></span>
+            </div>
+            <div class="board-wrap">
+                <div class="board" id="board"></div>
+            </div>
+            <div class="buttons">
+                <button class="btn btn-secondary" id="pass-btn" onclick="passTurn()">패스</button>
+                <button class="btn btn-secondary" id="undo-btn" onclick="undoMove()">한수 무르기</button>
+                <button class="btn btn-secondary" onclick="countScore()">집계산</button>
+                <button class="btn btn-secondary" onclick="judgePosition()">형세판단</button>
+                <button class="btn btn-primary" onclick="goToStart()">나가기</button>
+            </div>
+            <p class="message" id="message"></p>
+        </div>
+    </div>
+
+    <script src="/lukabaduk-multiplayer.js"></script>
+</body>
+</html>

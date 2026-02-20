@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>루카바둑 - 혼자두기</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Noto Sans KR', sans-serif; min-height: 100vh; background: linear-gradient(180deg, #f5e6d3 0%, #e8d5c4 100%); display: flex; flex-direction: column; align-items: center; padding: 16px 12px; padding-top: 48px; }
+        .back-link { position: fixed; top: 12px; left: 12px; z-index: 100; font-size: 0.8rem; color: #5d4e37; text-decoration: none; padding: 6px 10px; border-radius: 6px; background: rgba(255,255,255,0.9); box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+        .back-link:hover { background: #fff; color: #333; }
+        h1 { font-size: 1.15rem; color: #5d4e37; margin-bottom: 6px; }
+        .info { display: flex; gap: 14px; margin-bottom: 8px; font-size: 0.75rem; flex-wrap: wrap; justify-content: center; }
+        .info span { font-weight: 700; }
+        .board-wrap { background: #c4a574; padding: 12px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.3); }
+        .board { display: grid; background: #daa84b; position: relative; overflow: visible; }
+        .cell { display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; overflow: visible; }
+        .cell::before { content: ''; position: absolute; width: 1px; height: 100%; left: 50%; background: #333; }
+        .cell::after { content: ''; position: absolute; height: 1px; width: 100%; top: 50%; background: #333; }
+        .cell.edge-top::before { height: 50%; top: 50%; }
+        .cell.edge-bottom::before { height: 50%; bottom: 50%; top: auto; }
+        .cell.edge-left::after { width: 50%; left: 50%; }
+        .cell.edge-right::after { width: 50%; right: 50%; left: auto; }
+        .stone { width: 92%; height: 92%; border-radius: 50%; z-index: 2; pointer-events: none; }
+        .stone.black { background: radial-gradient(circle at 28% 28%, #6a6a6a 0%, #3a3a3a 20%, #1f1f1f 45%, #0a0a0a 75%, #000 100%); box-shadow: inset 4px 4px 10px rgba(255,255,255,0.28), inset -3px -3px 8px rgba(0,0,0,0.7), 0 5px 10px rgba(0,0,0,0.5); }
+        .stone.white { background: radial-gradient(circle at 28% 28%, #fff 0%, #f0f0f0 15%, #d8d8d8 40%, #b8b8b8 70%, #9a9a9a 100%); box-shadow: inset 5px 5px 12px rgba(255,255,255,0.95), inset -2px -2px 6px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.28); }
+        .stone.yellow { background: radial-gradient(circle at 28% 28%, #f5e0c4 0%, #e8b878 18%, #d49250 45%, #6b4423 72%, #2a1810 100%); box-shadow: inset 4px 4px 10px rgba(255,248,235,0.5), inset -3px -3px 8px rgba(0,0,0,0.32), 0 5px 10px rgba(0,0,0,0.35); }
+        .stone.last { box-shadow: inset 4px 4px 10px rgba(255,255,255,0.28), inset -3px -3px 8px rgba(0,0,0,0.7), 0 5px 10px rgba(0,0,0,0.5), 0 0 0 1.5px #c0392b; }
+        .stone.white.last { box-shadow: inset 5px 5px 12px rgba(255,255,255,0.95), inset -2px -2px 6px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.28), 0 0 0 1.5px #c0392b; }
+        .stone.yellow.last { box-shadow: inset 4px 4px 10px rgba(255,250,240,0.5), inset -3px -3px 8px rgba(0,0,0,0.32), 0 5px 10px rgba(0,0,0,0.35), 0 0 0 1.5px #c0392b; }
+        .yellow-stone-cross { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 190%; height: 190%; background: transparent; background-image: linear-gradient(#daa84b,#daa84b), linear-gradient(#daa84b,#daa84b); background-size: 100% 2.5px, 2.5px 100%; background-position: center; background-repeat: no-repeat; opacity: 0.9; pointer-events: none; z-index: 1; }
+        .star-dot { position: absolute; width: 4px; height: 4px; background: #333; border-radius: 50%; z-index: 1; }
+        .cell .territory-dot { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 28%; height: 28%; border-radius: 50%; pointer-events: none; z-index: 1; }
+        .cell .territory-dot.territory-black-dot { background: rgba(60, 90, 150, 0.85); }
+        .cell .territory-dot.territory-white-dot { background: rgba(255, 248, 220, 0.9); box-shadow: 0 0 0 1px rgba(0,0,0,0.15); }
+        .buttons { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
+        .btn { padding: 6px 12px; font-size: 0.72rem; font-family: 'Noto Sans KR', sans-serif; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; }
+        .btn-primary { background: #8b6914; color: white; }
+        .btn-primary:hover { background: #6b5010; }
+        .btn-secondary { background: #ddd; color: #333; }
+        .btn-secondary:hover { background: #ccc; }
+        .message { margin-top: 8px; font-size: 0.7rem; font-weight: 700; min-height: 18px; text-align: center; line-height: 1.35; }
+        .mode-btns { display: flex; gap: 8px; margin-bottom: 8px; }
+        .mode-btns .btn { padding: 8px 18px; font-size: 0.8rem; }
+        .board-size { margin: 10px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .board-size span { font-weight: 700; font-size: 0.8rem; }
+        .board-size .btn { padding: 6px 12px; font-size: 0.72rem; }
+        .board-size .btn.active { background: #8b6914; color: white; }
+        .screen { display: flex; flex-direction: column; align-items: center; }
+        .screen.hidden { display: none !important; }
+        .screen-start .mode-btns { margin: 12px 0; }
+        .screen-game { width: 100%; max-width: 400px; }
+        .back-btn { margin-top: 12px; font-size: 0.72rem; padding: 6px 12px; }
+    </style>
+</head>
+<body>
+    <a href="/lukabaduk.html" class="back-link">← 경기하기로</a>
+    <div id="screen-start" class="screen">
+        <h1>혼자두기</h1>
+        <div class="board-size">
+            <span>루카바둑판 크기:</span>
+            <button class="btn btn-secondary active" id="size-9" onclick="setBoardSize(9)">9×9</button>
+            <button class="btn btn-secondary" id="size-13" onclick="setBoardSize(13)">13×13</button>
+            <button class="btn btn-secondary" id="size-19" onclick="setBoardSize(19)">19×19</button>
+        </div>
+        <div class="mode-btns">
+            <button class="btn btn-primary" onclick="goToHumanGame()">사람과 두기</button>
+            <button class="btn btn-primary" onclick="goToAIChoice()">AI와 두기</button>
+        </div>
+    </div>
+    <div id="screen-ai-choice" class="screen hidden">
+        <h1>혼자두기</h1>
+        <p class="message" style="margin: 16px 0;">돌가르기를 하세요</p>
+        <button class="btn btn-primary" onclick="doStoneChoice()">돌가르기</button>
+        <button class="btn btn-secondary back-btn" onclick="goToStart()">처음으로 돌아가기</button>
+    </div>
+    <div id="screen-game" class="screen hidden screen-game">
+        <h1>루카바둑</h1>
+        <div class="info">
+            <span>차례: <span id="turn">흑</span></span>
+            <span>흑 포로: <span id="cap-black">0</span></span>
+            <span>백 포로: <span id="cap-white">0</span></span>
+            <span id="pass-count"></span>
+        </div>
+        <div class="board-wrap">
+            <div class="board" id="board"></div>
+        </div>
+        <div class="buttons">
+            <button class="btn btn-secondary" onclick="passTurn()">패스</button>
+            <button class="btn btn-secondary" onclick="undoMove()">한수 무르기</button>
+            <button class="btn btn-secondary" onclick="countScore()">집계산</button>
+            <button class="btn btn-secondary" onclick="judgePosition()">형세판단</button>
+            <button class="btn btn-primary" onclick="resetGame()">새 게임</button>
+        </div>
+        <p class="message" id="message"></p>
+        <button class="btn btn-secondary back-btn" onclick="goToStart()">처음으로 돌아가기</button>
+    </div>
+
+    <script src="/lukabaduk-game.js"></script>
+</body>
+</html>
