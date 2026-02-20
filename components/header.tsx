@@ -24,27 +24,27 @@ export default function Header() {
         </Link>
 
         <nav className="hidden items-center gap-6 lg:gap-8 md:flex min-w-0">
-          {navLinks.map((link) =>
-            "external" in link && link.external ? (
+          {navLinks.map((link) => {
+            const isGame = link.label === "게임하기";
+            const linkClass = isGame
+              ? "text-base font-bold text-amber-800 transition-colors hover:text-amber-700"
+              : "text-sm font-medium text-muted-foreground transition-colors hover:text-foreground";
+            return "external" in link && link.external ? (
               <a
                 key={link.href}
                 href={link.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                className={linkClass}
               >
                 {link.label}
               </a>
             ) : (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-              >
+              <Link key={link.href} href={link.href} className={linkClass}>
                 {link.label}
               </Link>
-            )
-          )}
+            );
+          })}
         </nav>
 
         <Link
@@ -66,15 +66,19 @@ export default function Header() {
       {mobileOpen && (
         <div className="border-t border-border bg-background px-4 py-5 md:hidden max-h-[calc(100vh-4rem)] overflow-y-auto overscroll-contain">
           <nav className="flex flex-col gap-0">
-            {navLinks.map((link) =>
-              "external" in link && link.external ? (
+            {navLinks.map((link) => {
+              const isGame = link.label === "게임하기";
+              const linkClass = isGame
+                ? "py-3.5 text-lg font-bold text-amber-800 transition-colors hover:text-amber-700 touch-manipulation"
+                : "py-3.5 text-base font-medium text-muted-foreground transition-colors hover:text-foreground touch-manipulation";
+              return "external" in link && link.external ? (
                 <a
                   key={link.href}
                   href={link.href}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => setMobileOpen(false)}
-                  className="py-3.5 text-base font-medium text-muted-foreground transition-colors hover:text-foreground touch-manipulation"
+                  className={linkClass}
                 >
                   {link.label}
                 </a>
@@ -83,12 +87,12 @@ export default function Header() {
                   key={link.href}
                   href={link.href}
                   onClick={() => setMobileOpen(false)}
-                  className="py-3.5 text-base font-medium text-muted-foreground transition-colors hover:text-foreground touch-manipulation"
+                  className={linkClass}
                 >
                   {link.label}
                 </Link>
-              )
-            )}
+              );
+            })}
             <Link
               href="#contact"
               onClick={() => setMobileOpen(false)}
