@@ -118,17 +118,12 @@ function getNeighbors(r, c) {
 function getGroupOwner(r, c) {
     if (board[r][c] === BLACK) return BLACK;
     if (board[r][c] === WHITE) return WHITE;
-    if (board[r][c] === YELLOW && yellowAsBlack.has(r + ',' + c)) return BLACK;
-    if (board[r][c] === YELLOW && yellowAsWhite.has(r + ',' + c)) return WHITE;
     return null;
 }
 function getGroup(r, c, color) {
     const visited = Array(SIZE).fill(null).map(() => Array(SIZE).fill(false)), group = [];
     function sameColor(i, j) {
-        if (board[i][j] === color) return true;
-        if (color === BLACK && board[i][j] === YELLOW && yellowAsBlack.has(i + ',' + j)) return true;
-        if (color === WHITE && board[i][j] === YELLOW && yellowAsWhite.has(i + ',' + j)) return true;
-        return false;
+        return board[i][j] === color;
     }
     function dfs(i, j) {
         if (i < 0 || i >= SIZE || j < 0 || j >= SIZE) return;
@@ -148,7 +143,6 @@ function removeGroup(r, c) {
     const group = getGroup(r, c, owner);
     group.forEach(([i, j]) => {
         board[i][j] = EMPTY;
-        yellowAsBlack.delete(i + ',' + j); yellowAsWhite.delete(i + ',' + j);
     });
     return group.length;
 }
@@ -189,8 +183,6 @@ function doPlaceStone(row, col, skipUI) {
     const sig = boardSignature();
     if (boardHistory.length > 0 && boardHistory[boardHistory.length - 1] === sig) { undoPlace(); return false; }
     boardHistory.push(sig); if (boardHistory.length > 2) boardHistory.shift();
-    if (placeAsYellow && currentTurn === BLACK) yellowAsBlack.add(row + ',' + col);
-    if (placeAsYellow && currentTurn === WHITE) yellowAsWhite.add(row + ',' + col);
     moveHistory.push({ row, col, stone: actualStone, capturedStones: lastCapturedStones.map(([i, j, c, o]) => [i, j, c, o]), capturedByBlack: currentTurn === WHITE ? captured : 0, capturedByWhite: currentTurn === BLACK ? captured : 0, turn: currentTurn, blackMoveCount, whiteMoveCount });
     lastMove = [row, col]; consecutivePass = 0;
     if (currentTurn === BLACK) blackMoveCount++; else whiteMoveCount++;
@@ -200,7 +192,7 @@ function doPlaceStone(row, col, skipUI) {
 }
 
 function getValidMoves() {
-    const moves = [], saveYellowBlack = new Set(yellowAsBlack), saveYellowWhite = new Set(yellowAsWhite);
+    const moves = [];
     for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
         if (board[r][c] !== EMPTY) continue;
         const opponent = currentTurn === BLACK ? WHITE : BLACK;
@@ -218,14 +210,12 @@ function getValidMoves() {
         const myLib = getLiberties(r, c, actualStone);
         if (myLib === 0) {
             board[r][c] = EMPTY; if (currentTurn === BLACK) capturedWhite -= captured; else capturedBlack -= captured;
-            lastCapturedStones.forEach(([i, j, color, owner]) => { board[i][j] = color; if (color === YELLOW && owner === BLACK) yellowAsBlack.add(i + ',' + j); if (color === YELLOW && owner === WHITE) yellowAsWhite.add(i + ',' + j); });
-            yellowAsBlack = new Set(saveYellowBlack); yellowAsWhite = new Set(saveYellowWhite);
+            lastCapturedStones.forEach(([i, j, color]) => { board[i][j] = color; });
             continue;
         }
         const sig = boardSignature();
         board[r][c] = EMPTY; if (currentTurn === BLACK) capturedWhite -= captured; else capturedBlack -= captured;
-        lastCapturedStones.forEach(([i, j, color, owner]) => { board[i][j] = color; if (color === YELLOW && owner === BLACK) yellowAsBlack.add(i + ',' + j); if (color === YELLOW && owner === WHITE) yellowAsWhite.add(i + ',' + j); });
-        yellowAsBlack = new Set(saveYellowBlack); yellowAsWhite = new Set(saveYellowWhite);
+        lastCapturedStones.forEach(([i, j, color]) => { board[i][j] = color; });
         const koViolation = boardHistory.length > 0 && boardHistory[boardHistory.length - 1] === sig;
         if (!koViolation) moves.push({ r, c, captures: captured });
     }
@@ -459,12 +449,8 @@ function undoMove(skipUI) {
     if (gameEnded) gameEnded = false;
     consecutivePass = 0; if (!skipUI) passCountEl.textContent = '';
     board[m.row][m.col] = EMPTY;
-    if (m.stone === YELLOW && m.turn === BLACK) yellowAsBlack.delete(m.row + ',' + m.col);
-    if (m.stone === YELLOW && m.turn === WHITE) yellowAsWhite.delete(m.row + ',' + m.col);
-    m.capturedStones.forEach(([i, j, color, owner]) => {
+    m.capturedStones.forEach(([i, j, color]) => {
         board[i][j] = color;
-        if (color === YELLOW && owner === BLACK) yellowAsBlack.add(i + ',' + j);
-        if (color === YELLOW && owner === WHITE) yellowAsWhite.add(i + ',' + j);
     });
     capturedBlack -= m.capturedByBlack; capturedWhite -= m.capturedByWhite;
     currentTurn = m.turn; blackMoveCount = m.blackMoveCount; whiteMoveCount = m.whiteMoveCount;
@@ -499,48 +485,15 @@ function getStoneOwnerAt(r, c) {
     const v = board[r][c];
     if (v === BLACK) return BLACK;
     if (v === WHITE) return WHITE;
-    if (v === YELLOW) {
-        const key = r + ',' + c;
-        if (yellowAsBlack.has(key)) return BLACK;
-        if (yellowAsWhite.has(key)) return WHITE;
-    }
+    if (v === YELLOW) return EMPTY;
     return EMPTY;
 }
 function getRawOwnerAt(r, c) {
     const v = board[r][c];
     if (v === BLACK) return BLACK;
     if (v === WHITE) return WHITE;
-    if (v === YELLOW) {
-        const key = r + ',' + c;
-        if (yellowAsBlack.has(key)) return BLACK;
-        if (yellowAsWhite.has(key)) return WHITE;
-    }
+    if (v === YELLOW) return EMPTY;
     return EMPTY;
-}
-function estimateYellowOwnerForScoring(r, c, ignoreDeadKey) {
-    let blackAdj = 0, whiteAdj = 0;
-    getNeighbors(r, c).forEach(([nr, nc]) => {
-        const key = nr + ',' + nc;
-        if (deadStoneMarks.has(key) && key !== ignoreDeadKey) return;
-        const owner = getRawOwnerAt(nr, nc);
-        if (owner === BLACK) blackAdj++;
-        else if (owner === WHITE) whiteAdj++;
-    });
-    if (blackAdj !== whiteAdj) return blackAdj > whiteAdj ? BLACK : WHITE;
-    let blackInfluence = 0, whiteInfluence = 0;
-    const radius = SIZE <= 9 ? 4 : SIZE <= 13 ? 5 : 6, decay = 0.72;
-    for (let sr = 0; sr < SIZE; sr++) for (let sc = 0; sc < SIZE; sc++) {
-        const key = sr + ',' + sc;
-        if (deadStoneMarks.has(key) && key !== ignoreDeadKey) continue;
-        const owner = getRawOwnerAt(sr, sc);
-        if (owner !== BLACK && owner !== WHITE) continue;
-        const dist = Math.abs(sr - r) + Math.abs(sc - c);
-        if (dist <= 0 || dist > radius) continue;
-        const influence = Math.pow(decay, dist - 1);
-        if (owner === BLACK) blackInfluence += influence; else whiteInfluence += influence;
-    }
-    if (Math.abs(blackInfluence - whiteInfluence) > 0.001) return blackInfluence > whiteInfluence ? BLACK : WHITE;
-    return getRawOwnerAt(r, c);
 }
 function getScoringOwnerAtPoint(r, c, ignoreDeadKey) {
     const key = r + ',' + c;
@@ -548,7 +501,7 @@ function getScoringOwnerAtPoint(r, c, ignoreDeadKey) {
     const v = board[r][c];
     if (v === BLACK) return BLACK;
     if (v === WHITE) return WHITE;
-    if (v === YELLOW) return estimateYellowOwnerForScoring(r, c, ignoreDeadKey);
+    if (v === YELLOW) return EMPTY;
     return EMPTY;
 }
 function getDeadStoneCaptureBonus() {
@@ -560,6 +513,159 @@ function getDeadStoneCaptureBonus() {
         else if (owner === WHITE) deadWhite += 1;
     });
     return { deadBlack, deadWhite };
+}
+
+function analyzeScoringState() {
+    const baseDead = new Set(deadStoneMarks);
+
+    function baseOwnerAt(r, c) {
+        const v = board[r][c];
+        if (v === BLACK) return BLACK;
+        if (v === WHITE) return WHITE;
+        if (v === YELLOW) return EMPTY;
+        return EMPTY;
+    }
+
+    function ownerAtWithDead(r, c, deadSet) {
+        const key = r + ',' + c;
+        if (deadSet.has(key)) return EMPTY;
+        const v = board[r][c];
+        if (v === BLACK) return BLACK;
+        if (v === WHITE) return WHITE;
+        if (v === YELLOW) return EMPTY;
+        return EMPTY;
+    }
+
+    function detectAutoDead(deadSet) {
+        const visited = new Set();
+        const autoDead = new Set();
+        for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+            const key = r + ',' + c;
+            if (visited.has(key) || deadSet.has(key)) continue;
+            const owner = baseOwnerAt(r, c);
+            if (owner !== BLACK && owner !== WHITE) continue;
+            const queue = [[r, c]];
+            const group = [];
+            const liberties = new Set();
+            visited.add(key);
+            while (queue.length > 0) {
+                const [cr, cc] = queue.pop();
+                group.push([cr, cc]);
+                getNeighbors(cr, cc).forEach(([nr, nc]) => {
+                    const nKey = nr + ',' + nc;
+                    const nOwner = ownerAtWithDead(nr, nc, deadSet);
+                    if (nOwner === EMPTY) liberties.add(nKey);
+                    else if (nOwner === owner && !visited.has(nKey)) {
+                        visited.add(nKey);
+                        queue.push([nr, nc]);
+                    }
+                });
+            }
+            if (liberties.size <= 1) group.forEach(([gr, gc]) => autoDead.add(gr + ',' + gc));
+        }
+        return autoDead;
+    }
+
+    const autoDead = detectAutoDead(baseDead);
+    const deadSet = new Set([...baseDead, ...autoDead]);
+    const ownerAt = (r, c) => ownerAtWithDead(r, c, deadSet);
+
+    function pointInfluence(r, c) {
+        let blackInfluence = 0, whiteInfluence = 0;
+        const radius = SIZE <= 9 ? 4 : SIZE <= 13 ? 5 : 6;
+        const decay = 0.72;
+        for (let sr = 0; sr < SIZE; sr++) for (let sc = 0; sc < SIZE; sc++) {
+            const o = ownerAt(sr, sc);
+            if (o !== BLACK && o !== WHITE) continue;
+            const dist = Math.abs(sr - r) + Math.abs(sc - c);
+            if (dist <= 0 || dist > radius) continue;
+            const line = Math.min(r, c, SIZE - 1 - r, SIZE - 1 - c);
+            const edgeWeight = line === 0 ? 1.18 : line === 1 ? 1.1 : 1.0;
+            const influence = Math.pow(decay, dist - 1) * edgeWeight;
+            if (o === BLACK) blackInfluence += influence;
+            else whiteInfluence += influence;
+        }
+        return { diff: blackInfluence - whiteInfluence };
+    }
+
+    const visited = Array(SIZE).fill(null).map(() => Array(SIZE).fill(false));
+    const safeBlackPoints = [], safeWhitePoints = [];
+    const potentialBlackPoints = [], potentialWhitePoints = [];
+    const threatenedPoints = [];
+    let safeBlack = 0, safeWhite = 0, potentialBlack = 0, potentialWhite = 0;
+
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+        if ((board[r][c] !== EMPTY && !deadSet.has(r + ',' + c)) || visited[r][c]) continue;
+        const queue = [[r, c]];
+        visited[r][c] = true;
+        const region = [];
+        let touchesBlack = false, touchesWhite = false;
+        while (queue.length > 0) {
+            const [cr, cc] = queue.pop();
+            region.push([cr, cc]);
+            getNeighbors(cr, cc).forEach(([nr, nc]) => {
+                const o = ownerAt(nr, nc);
+                const nKey = nr + ',' + nc;
+                const isTraversable = (board[nr][nc] === EMPTY || deadSet.has(nKey));
+                if (o === EMPTY && isTraversable && !visited[nr][nc]) {
+                    visited[nr][nc] = true;
+                    queue.push([nr, nc]);
+                } else if (o === BLACK) touchesBlack = true;
+                else if (o === WHITE) touchesWhite = true;
+            });
+        }
+        if (touchesBlack && !touchesWhite) {
+            region.forEach(([rr, cc]) => safeBlackPoints.push([rr, cc]));
+            safeBlack += region.length;
+        } else if (touchesWhite && !touchesBlack) {
+            region.forEach(([rr, cc]) => safeWhitePoints.push([rr, cc]));
+            safeWhite += region.length;
+        } else {
+            region.forEach(([rr, cc]) => {
+                const inf = pointInfluence(rr, cc);
+                const absDiff = Math.abs(inf.diff);
+                if (absDiff >= 0.3) {
+                    const strength = Math.min(1, absDiff / 1.2);
+                    if (inf.diff > 0) {
+                        potentialBlackPoints.push([rr, cc, strength]);
+                        potentialBlack += 0.5 + strength * 0.5;
+                    } else {
+                        potentialWhitePoints.push([rr, cc, strength]);
+                        potentialWhite += 0.5 + strength * 0.5;
+                    }
+                } else {
+                    threatenedPoints.push([rr, cc]);
+                }
+            });
+        }
+    }
+
+    let blackStones = 0, whiteStones = 0;
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+        const o = ownerAt(r, c);
+        if (o === BLACK) blackStones++;
+        else if (o === WHITE) whiteStones++;
+    }
+
+    let deadBlack = 0, deadWhite = 0;
+    deadSet.forEach((key) => {
+        const [r, c] = key.split(',').map(Number);
+        const o = baseOwnerAt(r, c);
+        if (o === BLACK) deadBlack++;
+        else if (o === WHITE) deadWhite++;
+    });
+
+    const japaneseBlack = safeBlack + potentialBlack + capturedWhite + deadWhite;
+    const japaneseWhite = safeWhite + potentialWhite + capturedBlack + deadBlack + 6.5;
+    const chineseBlack = safeBlack + potentialBlack + blackStones;
+    const chineseWhite = safeWhite + potentialWhite + whiteStones + 6.5;
+
+    return {
+        safeBlackPoints, safeWhitePoints, potentialBlackPoints, potentialWhitePoints, threatenedPoints,
+        safeBlack, safeWhite, potentialBlack, potentialWhite, blackStones, whiteStones,
+        deadBlack, deadWhite, japaneseBlack, japaneseWhite, chineseBlack, chineseWhite,
+        autoDeadCount: autoDead.size
+    };
 }
 function toggleDeadStoneMark(r, c) {
     if (!scoringInspectMode) return false;
@@ -580,24 +686,37 @@ function countStones(color) {
     return n;
 }
 function doCountScore() {
-    const blackTerritory = countTerritory(BLACK), whiteTerritory = countTerritory(WHITE);
-    const blackStones = countStones(BLACK), whiteStones = countStones(WHITE);
-    const deadBonus = getDeadStoneCaptureBonus();
+    const s = analyzeScoringState();
+    if (!s) return null;
     return {
-        blackScore: blackTerritory + blackStones + capturedWhite + deadBonus.deadWhite,
-        whiteScore: whiteTerritory + whiteStones + capturedBlack + deadBonus.deadBlack + 6.5,
-        blackTerritory, whiteTerritory, blackStones, whiteStones, deadBonus
+        blackScore: s.japaneseBlack,
+        whiteScore: s.japaneseWhite,
+        blackSafeTerritory: s.safeBlack,
+        whiteSafeTerritory: s.safeWhite,
+        blackPotentialTerritory: s.potentialBlack,
+        whitePotentialTerritory: s.potentialWhite,
+        capturedByBlack: capturedWhite,
+        capturedByWhite: capturedBlack,
+        deadWhite: s.deadWhite,
+        deadBlack: s.deadBlack,
+        komi: 6.5
     };
 }
 function countScore() {
     scoringInspectMode = true;
     lastScoringView = 'count';
     const s = doCountScore();
-    const evalRes = evaluateAdvantageAreas();
-    const blackEstimate = s.blackScore + evalRes.blackAdvScore * 0.7;
-    const whiteEstimate = s.whiteScore + evalRes.whiteAdvScore * 0.7;
-    const winner = blackEstimate > whiteEstimate ? '흑' : '백', diff = Math.abs(blackEstimate - whiteEstimate).toFixed(1);
-    messageEl.textContent = '집계산(확정): 흑 ' + s.blackScore.toFixed(1) + ' (집 ' + s.blackTerritory + ' + 돌 ' + s.blackStones + ' + 포로 ' + capturedWhite + ' + 사석 ' + s.deadBonus.deadWhite + ') : 백 ' + s.whiteScore.toFixed(1) + ' (집 ' + s.whiteTerritory + ' + 돌 ' + s.whiteStones + ' + 포로 ' + capturedBlack + ' + 사석 ' + s.deadBonus.deadBlack + ' + 코미 6.5) / 우세영역 반영 예상: 흑 ' + blackEstimate.toFixed(1) + ' : 백 ' + whiteEstimate.toFixed(1) + ' → ' + winner + '+' + diff;
+    if (!s) return;
+    const winner = s.blackScore > s.whiteScore ? '흑' : '백';
+    const diff = Math.abs(s.blackScore - s.whiteScore).toFixed(1);
+    messageEl.textContent =
+      '집계산(일본식 단일): 흑 ' + s.blackScore.toFixed(1) +
+      ' (안전집 ' + s.blackSafeTerritory.toFixed(1) + ' + 우세영역 ' + s.blackPotentialTerritory.toFixed(1) +
+      ' + 따낸돌 ' + s.capturedByBlack + ' + 사석 ' + s.deadWhite + ')' +
+      ' : 백 ' + s.whiteScore.toFixed(1) +
+      ' (안전집 ' + s.whiteSafeTerritory.toFixed(1) + ' + 우세영역 ' + s.whitePotentialTerritory.toFixed(1) +
+      ' + 따낸돌 ' + s.capturedByWhite + ' + 사석 ' + s.deadBlack + ' + 덤 ' + s.komi + ')' +
+      ' → ' + winner + '+' + diff;
 }
 function floodTerritoryWithPoints(r, c, visited) {
     if (r < 0 || r >= SIZE || c < 0 || c >= SIZE) return { points: [], touchesBlack: false, touchesWhite: false };
@@ -608,6 +727,7 @@ function floodTerritoryWithPoints(r, c, visited) {
         const owner = getScoringOwnerAtPoint(r, c);
         if (owner === BLACK) return { points: [], touchesBlack: true, touchesWhite: false };
         if (owner === WHITE) return { points: [], touchesBlack: false, touchesWhite: true };
+        return { points: [], touchesBlack: false, touchesWhite: false };
     }
     visited[r][c] = true;
     let points = [[r, c]], touchesBlack = false, touchesWhite = false;
@@ -672,37 +792,102 @@ function evaluateAdvantageAreas() {
 }
 function getCellAt(r, c) { return boardEl.querySelector('.cell[data-row="' + r + '"][data-col="' + c + '"]'); }
 function clearTerritoryDisplay() { if (!showingTerritory) return; showingTerritory = false; boardEl.querySelectorAll('.cell .territory-dot').forEach(el => el.remove()); }
+function evaluateProbabilisticPosition(s) {
+    const uncertain = s.threatenedPoints || [];
+    const iterations = SIZE <= 9 ? 120 : SIZE <= 13 ? 180 : 240;
+    const radius = SIZE <= 9 ? 3 : SIZE <= 13 ? 4 : 5;
+    const decay = 0.74;
+    function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+    function influenceDiffAt(r, c) {
+        let blackInf = 0, whiteInf = 0;
+        for (let sr = 0; sr < SIZE; sr++) for (let sc = 0; sc < SIZE; sc++) {
+            const owner = getScoringOwnerAtPoint(sr, sc);
+            if (owner !== BLACK && owner !== WHITE) continue;
+            const dist = Math.abs(sr - r) + Math.abs(sc - c);
+            if (dist <= 0 || dist > radius) continue;
+            const inf = Math.pow(decay, dist - 1);
+            if (owner === BLACK) blackInf += inf; else whiteInf += inf;
+        }
+        return blackInf - whiteInf;
+    }
+
+    const pointProb = uncertain.map(([r, c]) => {
+        const d = influenceDiffAt(r, c);
+        const pBlack = Math.max(0.08, Math.min(0.92, sigmoid(d * 1.35)));
+        return { r, c, pBlack };
+    });
+    const avgCertainty = pointProb.length === 0 ? 1 : pointProb.reduce((acc, p) => acc + Math.abs(p.pBlack - 0.5) * 2, 0) / pointProb.length;
+
+    const baseJapaneseDiff = s.japaneseBlack - s.japaneseWhite;
+    const baseChineseDiff = s.chineseBlack - s.chineseWhite;
+    const valueDiff = baseJapaneseDiff * 0.65 + baseChineseDiff * 0.35;
+    const valueWinRate = sigmoid(valueDiff / 6.0);
+
+    let mctsWinsBlack = 0;
+    let diffSum = 0;
+    for (let i = 0; i < iterations; i++) {
+        let b = s.japaneseBlack;
+        let w = s.japaneseWhite;
+        for (let j = 0; j < pointProb.length; j++) {
+            const p = pointProb[j];
+            if (Math.random() < p.pBlack) b += 1;
+            else w += 1;
+        }
+        const diff = b - w;
+        diffSum += diff;
+        if (diff > 0) mctsWinsBlack += 1;
+        else if (diff === 0 && Math.random() < 0.5) mctsWinsBlack += 1;
+    }
+    const mctsWinRate = mctsWinsBlack / Math.max(1, iterations);
+    const mctsDiff = diffSum / Math.max(1, iterations);
+
+    const blackWinRate = valueWinRate * 0.35 + mctsWinRate * 0.65;
+    const predictedDiff = valueDiff * 0.4 + mctsDiff * 0.6;
+    return {
+        blackWinRate,
+        whiteWinRate: 1 - blackWinRate,
+        predictedDiff,
+        iterations,
+        confidence: Math.max(0.12, Math.min(0.98, avgCertainty * 0.8 + Math.abs(blackWinRate - 0.5) * 0.4)),
+    };
+}
 function renderJudgePosition() {
-    const s = doCountScore(), evalRes = evaluateAdvantageAreas();
-    const blackEstimate = s.blackScore + evalRes.blackAdvScore * 0.7;
-    const whiteEstimate = s.whiteScore + evalRes.whiteAdvScore * 0.7;
-    const diff = blackEstimate - whiteEstimate;
-    let msg; if (Math.abs(diff) < 1) msg = '형세판단: 접전 (확정 흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ' / 예상 흑 ' + blackEstimate.toFixed(1) + ' : 백 ' + whiteEstimate.toFixed(1) + ') · 진한점=확정집, 옅은점=우세영역';
-    else if (diff > 0) msg = '형세판단: 흑 우세 (확정 흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ' / 예상 +' + diff.toFixed(1) + ') · 진한점=확정집, 옅은점=우세영역';
-    else msg = '형세판단: 백 우세 (확정 흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ' / 예상 +' + (-diff).toFixed(1) + ') · 진한점=확정집, 옅은점=우세영역';
+    const s = analyzeScoringState();
+    if (!s) return;
+    const p = evaluateProbabilisticPosition(s);
+    const bw = (p.blackWinRate * 100).toFixed(1);
+    const ww = (p.whiteWinRate * 100).toFixed(1);
+    const absDiff = Math.abs(p.predictedDiff).toFixed(1);
+    let msg;
+    if (Math.abs(p.predictedDiff) < 1) msg = '형세판단: 접전 (승률 흑 ' + bw + '% / 백 ' + ww + '%, 예상 집차 약 0~1집, 신뢰도 ' + (p.confidence * 100).toFixed(0) + '%)';
+    else if (p.predictedDiff > 0) msg = '형세판단: 흑 우세 (승률 흑 ' + bw + '% / 백 ' + ww + '%, 예상 흑 +' + absDiff + '집, 신뢰도 ' + (p.confidence * 100).toFixed(0) + '%)';
+    else msg = '형세판단: 백 우세 (승률 흑 ' + bw + '% / 백 ' + ww + '%, 예상 백 +' + absDiff + '집, 신뢰도 ' + (p.confidence * 100).toFixed(0) + '%)';
+    msg += ' · 가치평가+시뮬레이션(' + p.iterations + '회)';
     messageEl.textContent = msg;
     boardEl.querySelectorAll('.cell .territory-dot').forEach(el => el.remove());
-    evalRes.settledBlack.forEach((key) => {
-        const [r, c] = key.split(',').map(Number);
+    s.safeBlackPoints.forEach(([r, c]) => {
         const cell = getCellAt(r, c); if (!cell) return;
         const dot = document.createElement('span'); dot.className = 'territory-dot territory-black-dot'; cell.appendChild(dot);
     });
-    evalRes.settledWhite.forEach((key) => {
-        const [r, c] = key.split(',').map(Number);
+    s.safeWhitePoints.forEach(([r, c]) => {
         const cell = getCellAt(r, c); if (!cell) return;
         const dot = document.createElement('span'); dot.className = 'territory-dot territory-white-dot'; cell.appendChild(dot);
     });
-    evalRes.blackAdvPoints.forEach(([r, c, strength]) => {
+    s.potentialBlackPoints.forEach(([r, c, strength]) => {
         const cell = getCellAt(r, c); if (!cell) return;
         const dot = document.createElement('span'); dot.className = 'territory-dot territory-black-adv-dot';
         dot.style.opacity = String(Math.max(0.28, Math.min(0.78, 0.28 + strength * 0.5)));
         cell.appendChild(dot);
     });
-    evalRes.whiteAdvPoints.forEach(([r, c, strength]) => {
+    s.potentialWhitePoints.forEach(([r, c, strength]) => {
         const cell = getCellAt(r, c); if (!cell) return;
         const dot = document.createElement('span'); dot.className = 'territory-dot territory-white-adv-dot';
         dot.style.opacity = String(Math.max(0.28, Math.min(0.78, 0.28 + strength * 0.5)));
         cell.appendChild(dot);
+    });
+    s.threatenedPoints.forEach(([r, c]) => {
+        const cell = getCellAt(r, c); if (!cell) return;
+        const dot = document.createElement('span'); dot.className = 'territory-dot territory-threat-dot'; cell.appendChild(dot);
     });
     showingTerritory = true;
 }
@@ -732,8 +917,15 @@ function hideSidebarResult() {
 function endGame() {
     gameEnded = true;
     stopTimer();
-    var s = doCountScore(), winnerColor = s.blackScore > s.whiteScore ? 'black' : 'white', winner = winnerColor === 'black' ? '흑' : '백', diff = Math.abs(s.blackScore - s.whiteScore);
-    messageEl.textContent = '종료. ' + winner + ' 승 (흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ', ' + winner + '+' + diff.toFixed(1) + ')';
+    var s = doCountScore();
+    if (!s) return;
+    var winnerColor = s.blackScore > s.whiteScore ? 'black' : 'white', winner = winnerColor === 'black' ? '흑' : '백', diff = Math.abs(s.blackScore - s.whiteScore);
+    messageEl.textContent =
+      '종료(일본식). 흑 ' + s.blackScore.toFixed(1) +
+      ' (안전집 ' + s.blackSafeTerritory.toFixed(1) + ' + 우세영역 ' + s.blackPotentialTerritory.toFixed(1) + ' + 따낸돌 ' + s.capturedByBlack + ' + 사석 ' + s.deadWhite + ')' +
+      ' : 백 ' + s.whiteScore.toFixed(1) +
+      ' (안전집 ' + s.whiteSafeTerritory.toFixed(1) + ' + 우세영역 ' + s.whitePotentialTerritory.toFixed(1) + ' + 따낸돌 ' + s.capturedByWhite + ' + 사석 ' + s.deadBlack + ' + 덤 ' + s.komi + ')' +
+      ' → ' + winner + '+' + diff.toFixed(1);
     updateSidebarResult(winnerColor, diff, false);
 }
 function showCountRequestUI() {
@@ -772,10 +964,16 @@ function countAndEndGame() {
     gameEnded = true;
     stopTimer();
     var s = doCountScore();
+    if (!s) return;
     var winnerColor = s.blackScore > s.whiteScore ? 'black' : 'white';
     var winner = winnerColor === 'black' ? '흑' : '백';
     var diff = Math.abs(s.blackScore - s.whiteScore);
-    messageEl.textContent = '계가 완료. ' + winner + ' ' + (diff === Math.floor(diff) ? diff : diff.toFixed(1)) + '집 승 (흑 ' + s.blackScore.toFixed(1) + ' : 백 ' + s.whiteScore.toFixed(1) + ')';
+    messageEl.textContent =
+      '계가 완료(일본식). 흑 ' + s.blackScore.toFixed(1) +
+      ' (안전집 ' + s.blackSafeTerritory.toFixed(1) + ' + 우세영역 ' + s.blackPotentialTerritory.toFixed(1) + ' + 따낸돌 ' + s.capturedByBlack + ' + 사석 ' + s.deadWhite + ')' +
+      ' : 백 ' + s.whiteScore.toFixed(1) +
+      ' (안전집 ' + s.whiteSafeTerritory.toFixed(1) + ' + 우세영역 ' + s.whitePotentialTerritory.toFixed(1) + ' + 따낸돌 ' + s.capturedByWhite + ' + 사석 ' + s.deadBlack + ' + 덤 ' + s.komi + ')' +
+      ' → ' + winner + '+' + (diff === Math.floor(diff) ? diff : diff.toFixed(1));
     updateSidebarResult(winnerColor, diff, false);
 }
 function floodTerritory(r, c, visited) {
@@ -787,6 +985,7 @@ function floodTerritory(r, c, visited) {
         const owner = getScoringOwnerAtPoint(r, c);
         if (owner === BLACK) return { territory: 0, touchesBlack: true, touchesWhite: false };
         if (owner === WHITE) return { territory: 0, touchesBlack: false, touchesWhite: true };
+        return { territory: 0, touchesBlack: false, touchesWhite: false };
     }
     visited[r][c] = true;
     let territory = 1, touchesBlack = false, touchesWhite = false;
