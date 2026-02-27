@@ -63,18 +63,23 @@ app.prepare().then(() => {
 
     if (req.method === 'GET' && parsedUrl.pathname === '/api/ai-capable') {
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ gtp: gtpAi.isConfigured() }));
+      res.end(JSON.stringify({
+        gtp: gtpAi.isConfigured(),
+        pachi: gtpAi.isEngineConfigured('pachi'),
+        gnugo: gtpAi.isEngineConfigured('gnugo'),
+      }));
       return;
     }
 
     if (req.method === 'POST' && parsedUrl.pathname === '/api/ai-move') {
       try {
         const body = await readBody(req);
-        const { size, moves, colorToPlay, timeRemainingSec } = JSON.parse(body || '{}');
-        if (!gtpAi.isConfigured()) {
+        const { size, moves, colorToPlay, timeRemainingSec, engine } = JSON.parse(body || '{}');
+        const useEngine = engine === 'gnugo' ? 'gnugo' : 'pachi';
+        if (!gtpAi.isEngineConfigured(useEngine)) {
           res.statusCode = 503;
           res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ error: 'GTP engine not configured' }));
+          res.end(JSON.stringify({ error: useEngine + ' engine not configured' }));
           return;
         }
         if (!size || !Array.isArray(moves) || !colorToPlay || timeRemainingSec == null) {
@@ -83,7 +88,33 @@ app.prepare().then(() => {
           res.end(JSON.stringify({ error: 'size, moves, colorToPlay, timeRemainingSec required' }));
           return;
         }
-        const result = await gtpAi.getMove(size, moves, colorToPlay, Math.max(1, timeRemainingSec));
+        const allowedSizes = [9, 13, 19];
+        if (!Number.isInteger(size) || !allowedSizes.includes(size)) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'size must be 9, 13, or 19' }));
+          return;
+        }
+        const colorOk = colorToPlay === 'B' || colorToPlay === 'W';
+        if (!colorOk) {
+          res.statusCode = 400;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'colorToPlay must be B or W' }));
+          return;
+        }
+        for (let i = 0; i < moves.length; i++) {
+          const m = moves[i];
+          const c = m && (m.color === 'B' || m.color === 'W');
+          const r = typeof m.row === 'number' && m.row >= 0 && m.row < size;
+          const col = typeof m.col === 'number' && m.col >= 0 && m.col < size;
+          if (!c || !r || !col) {
+            res.statusCode = 400;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: 'invalid move at index ' + i }));
+            return;
+          }
+        }
+        const result = await gtpAi.getMove(size, moves, colorToPlay, Math.max(1, timeRemainingSec), useEngine);
         res.setHeader('Content-Type', 'application/json');
         if (result === null) {
           res.statusCode = 503;

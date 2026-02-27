@@ -8,3 +8,6 @@ node_modules/
 .next/
 .env*.local
 .DS_Store
+
+# GTP 엔진 바이너리·데이터 (용량 제한, 로컬에 두고 GTP_ENGINE_PATH_* 로 지정)
+engines/

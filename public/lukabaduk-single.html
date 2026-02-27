@@ -59,6 +59,7 @@
         .btn-secondary { background: #ddd; color: #333; }
         .btn-secondary:hover { background: #ccc; }
         .message { margin-top: 8px; font-size: 0.7rem; font-weight: 700; min-height: 18px; text-align: center; line-height: 1.35; }
+        .ai-engine-hint { font-size: 0.75rem; color: #555; margin: 8px 0 14px; text-align: center; }
         .mode-btns { display: flex; gap: 8px; margin-bottom: 8px; }
         .mode-btns .btn { padding: 8px 18px; font-size: 0.8rem; }
         .board-size { margin: 10px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -176,12 +177,14 @@
         </div>
         <div class="mode-btns">
             <button class="btn btn-primary" onclick="goToHumanGame()">사람과 두기</button>
-            <button class="btn btn-primary" onclick="goToAIChoice()">AI와 두기</button>
+            <button class="btn btn-primary" onclick="goToAIChoice('gnugo')">AI와 두기(GNU Go)</button>
+            <button class="btn btn-primary" onclick="goToAIChoice('pachi')">AI와 두기(Pachi)</button>
         </div>
     </div>
     <div id="screen-ai-choice" class="screen hidden">
         <h1>혼자두기</h1>
         <p class="message" style="margin: 16px 0;">돌가르기를 하세요</p>
+        <p id="ai-engine-hint" class="ai-engine-hint">AI와 대국합니다.</p>
         <button class="btn btn-primary" onclick="doStoneChoice()">돌가르기</button>
         <button class="btn btn-secondary back-btn" onclick="goToStart()">처음으로 돌아가기</button>
     </div>

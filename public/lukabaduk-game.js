@@ -14,6 +14,7 @@ let currentTurn = BLACK, lastMove = null, capturedBlack = 0, capturedWhite = 0, 
 let boardHistory = [], lastCapturedStones = [], moveHistory = [], blackMoveCount = 0, whiteMoveCount = 0;
 let yellowAsBlack = new Set(), yellowAsWhite = new Set();
 let gameMode = 'human', humanColor = BLACK, aiColor = WHITE, aiGameStarted = false, showingTerritory = false;
+var selectedAiEngine = 'pachi';
 var countRequestedBy = null;
 var deadStoneMarks = new Set();
 var scoringInspectMode = false;
@@ -122,7 +123,21 @@ function onHumanMoved() {
     if (!gameEnded) startTimer();
 }
 function goToHumanGame() { gameMode = 'human'; aiGameStarted = false; resetGame(); showScreen('screen-game'); if (currentTurn === BLACK) startTimer(); }
-function goToAIChoice() { showScreen('screen-ai-choice'); }
+function goToAIChoice(engine) {
+        selectedAiEngine = engine === 'gnugo' ? 'gnugo' : 'pachi';
+        showScreen('screen-ai-choice');
+        var hintEl = document.getElementById('ai-engine-hint');
+        var label = selectedAiEngine === 'gnugo' ? 'GNU Go' : 'Pachi';
+        if (hintEl) hintEl.textContent = label + '와 대국합니다. 돌가르기 후 시작하세요.';
+        fetch('/api/ai-capable').then(function (r) { return r.json(); }).then(function (data) {
+            if (!hintEl) return;
+            var available = data && ((selectedAiEngine === 'gnugo' && data.gnugo) || (selectedAiEngine === 'pachi' && data.pachi));
+            if (available) hintEl.textContent = label + '와 대국합니다. 돌가르기 후 시작하세요.';
+            else hintEl.textContent = '서버에 ' + label + '가 설정되면 대국 가능합니다. (미설정 시 브라우저 AI로 진행)';
+        }).catch(function () {
+            if (hintEl) hintEl.textContent = '서버에 ' + label + '가 설정되면 대국 가능합니다.';
+        });
+    }
 function doStoneChoice() {
     humanColor = Math.random() < 0.5 ? BLACK : WHITE;
     aiColor = humanColor === BLACK ? WHITE : BLACK;
@@ -379,9 +394,10 @@ function tryServerAI(timeRemainingSec) {
         size: SIZE,
         moves: moveHistory.map(function (m) { return { color: m.turn === BLACK ? 'B' : 'W', row: m.row, col: m.col }; }),
         colorToPlay: aiColor === BLACK ? 'B' : 'W',
-        timeRemainingSec: Math.max(1, Math.floor(timeRemainingSec))
+        timeRemainingSec: Math.max(1, Math.floor(timeRemainingSec)),
+        engine: selectedAiEngine
     };
-    var timeoutMs = Math.max(2000, (timeRemainingSec - 0.5) * 1000);
+    var timeoutMs = Math.max(8000, (timeRemainingSec + 6) * 1000);
     var controller = new AbortController();
     var t = setTimeout(function () { controller.abort(); }, timeoutMs);
     return fetch('/api/ai-move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal })
@@ -408,7 +424,11 @@ function applyServerAIMove(result) {
         if (!gameEnded) startTimer();
         if (currentTurn === aiColor) setTimeout(aiPlay, 500);
     } else {
-        if (!doPlaceStone(result.row, result.col)) { runMCTSFromStart(); return; }
+        var r = result.row, c = result.col;
+        if (typeof r !== 'number' || typeof c !== 'number' || r < 0 || r >= SIZE || c < 0 || c >= SIZE || board[r][c] !== EMPTY) {
+            runMCTSFromStart(); return;
+        }
+        if (!doPlaceStone(r, c)) { runMCTSFromStart(); return; }
         if (aiColor === BLACK) blackTimeRemaining += timeConfig.byoYomi; else whiteTimeRemaining += timeConfig.byoYomi;
         updateTimeDisplay();
         messageEl.textContent = '당신 차례입니다';
