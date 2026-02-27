@@ -122,7 +122,7 @@ function doLogout() {
   myColor = null;
   gameState = null;
   updateAuthUI();
-  showMainSection('match');
+  showMainSection('games');
 }
 
 const boardEl = document.getElementById('board');
@@ -559,7 +559,7 @@ function goToStart() {
   hideSidebarResult();
   hideCountRequestUI();
   hideStoneChoosing();
-  showMainSection('match');
+  showMainSection('games');
 }
 
 function setMatchStatus(text, isError) {

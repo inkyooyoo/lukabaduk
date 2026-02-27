@@ -8,22 +8,24 @@
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Noto Sans KR', sans-serif; min-height: 100vh; background: linear-gradient(180deg, #f5e6d3 0%, #e8d5c4 100%); display: flex; flex-direction: column; align-items: center; padding: 16px 12px; padding-top: calc(56px + env(safe-area-inset-top, 0)); }
-        /* 상단 네비 (online-go 스타일) */
-        .game-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(93, 78, 55, 0.95); color: #f5e6d3; display: flex; align-items: center; justify-content: space-between; gap: 0; padding: 0 12px; min-height: 48px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); flex-wrap: wrap; }
+        body { font-family: 'Noto Sans KR', sans-serif; min-height: 100vh; background: #f5f5f5; display: flex; flex-direction: column; align-items: center; padding: 16px 12px; padding-top: calc(56px + env(safe-area-inset-top, 0)); }
+        /* 상단 네비 - 로고(흰/검정)에 맞춘 편안한 톤 */
+        .game-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: #fff; color: #1a1a1a; display: flex; align-items: center; justify-content: space-between; gap: 0; padding: 0 12px; min-height: 48px; box-shadow: 0 1px 0 rgba(0,0,0,0.08); flex-wrap: wrap; }
         .game-nav-inner { display: flex; align-items: center; flex: 1; min-width: 0; }
         .game-nav-links { display: flex; align-items: center; gap: 0; flex: 1; min-width: 0; }
-        .game-nav a { color: #f5e6d3; text-decoration: none; font-weight: 600; font-size: 0.9rem; padding: 0 16px; min-height: 48px; display: flex; align-items: center; border-bottom: 3px solid transparent; white-space: nowrap; }
-        .game-nav a:hover { background: rgba(255,255,255,0.1); }
-        .game-nav a.active { border-bottom-color: #daa84b; }
-        .game-nav .brand { margin-right: 24px; font-weight: 800; font-size: 1rem; flex-shrink: 0; }
+        .game-nav a { color: #333; text-decoration: none; font-weight: 600; font-size: 0.9rem; padding: 0 16px; min-height: 48px; display: flex; align-items: center; border-bottom: 3px solid transparent; white-space: nowrap; }
+        .game-nav a:hover { background: rgba(0,0,0,0.04); color: #1a1a1a; }
+        .game-nav a.active { border-bottom-color: #1a1a1a; color: #1a1a1a; }
+        .game-nav .brand { margin-right: 24px; font-weight: 800; font-size: 1rem; flex-shrink: 0; display: inline-flex; align-items: center; gap: 8px; color: #1a1a1a; text-decoration: none; }
+        .game-nav .brand:hover { color: #000; }
+        .game-nav .brand img { height: 32px; width: auto; display: block; border-radius: 6px; }
         .game-nav .spacer { flex: 1; min-width: 12px; }
-        .game-nav .back-to-site { position: static; background: transparent; box-shadow: none; padding: 0 12px; font-size: 0.8rem; }
-        .game-nav .back-to-site:hover { background: rgba(255,255,255,0.1); }
+        .game-nav .back-to-site { position: static; background: transparent; box-shadow: none; padding: 0 12px; font-size: 0.8rem; color: #333; }
+        .game-nav .back-to-site:hover { background: rgba(0,0,0,0.04); }
         /* 모바일: 햄버거 버튼 */
-        .game-nav-toggle { display: none; background: none; border: none; color: #f5e6d3; padding: 8px; cursor: pointer; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
+        .game-nav-toggle { display: none; background: none; border: none; color: #1a1a1a; padding: 8px; cursor: pointer; min-width: 44px; min-height: 44px; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
         .game-nav-toggle:focus { outline: none; }
-        .game-nav-toggle-bar { display: block; width: 22px; height: 2px; background: #f5e6d3; margin: 5px 0; border-radius: 1px; transition: transform 0.2s; }
+        .game-nav-toggle-bar { display: block; width: 22px; height: 2px; background: #1a1a1a; margin: 5px 0; border-radius: 1px; transition: transform 0.2s; }
         .game-nav-toggle.open .game-nav-toggle-bar:nth-child(1) { transform: translateY(7px) rotate(45deg); }
         .game-nav-toggle.open .game-nav-toggle-bar:nth-child(2) { opacity: 0; }
         .game-nav-toggle.open .game-nav-toggle-bar:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
@@ -32,10 +34,10 @@
         .game-nav-toggle.open .game-nav-toggle-bar:nth-child(2),
         .game-nav-toggle.open .game-nav-toggle-bar:nth-child(3) { transform: none; opacity: 1; }
         /* 모바일: 드롭다운 메뉴 */
-        .game-nav-drawer { display: none; width: 100%; background: rgba(93, 78, 55, 0.98); padding: 0 12px 16px; border-top: 1px solid rgba(255,255,255,0.1); }
+        .game-nav-drawer { display: none; width: 100%; background: #fff; padding: 0 12px 16px; border-top: 1px solid rgba(0,0,0,0.08); }
         .game-nav-drawer.open { display: flex; flex-direction: column; gap: 0; }
-        .game-nav-drawer a { width: 100%; padding: 14px 12px; min-height: auto; font-size: 1rem; border-bottom: none; border-radius: 6px; }
-        .game-nav-drawer a.active { background: rgba(218, 168, 75, 0.25); }
+        .game-nav-drawer a { width: 100%; padding: 14px 12px; min-height: auto; font-size: 1rem; border-bottom: none; border-radius: 6px; color: #333; }
+        .game-nav-drawer a.active { background: rgba(0,0,0,0.06); color: #1a1a1a; }
         .game-nav-drawer .auth-nav { display: flex; flex-direction: column; gap: 0; }
         .game-nav-drawer .auth-nav a { padding: 14px 12px; }
         @media (max-width: 768px) {
@@ -47,7 +49,7 @@
             .game-nav-drawer.open { display: flex; }
         }
         /* 본문 */
-        h1 { font-size: 1.15rem; color: #5d4e37; margin-bottom: 6px; }
+        h1 { font-size: 1.15rem; color: #1a1a1a; margin-bottom: 6px; }
         .info { display: flex; gap: 14px; margin-bottom: 8px; font-size: 0.75rem; flex-wrap: wrap; justify-content: center; }
         .info span { font-weight: 700; }
         .board-wrap { background: #c4a574; padding: 12px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.3); }
@@ -59,6 +61,11 @@
         .cell.edge-bottom::before { height: 50%; bottom: 50%; top: auto; }
         .cell.edge-left::after { width: 50%; left: 50%; }
         .cell.edge-right::after { width: 50%; right: 50%; left: auto; }
+        /* 격자 가장 바깥줄(9·13·19선) 살짝 두껍게 */
+        .cell.edge-top::after { height: 1.8px; top: 50%; margin-top: -0.9px; }
+        .cell.edge-bottom::after { height: 1.8px; top: 50%; margin-top: -0.9px; }
+        .cell.edge-left::before { width: 1.8px; left: 50%; margin-left: -0.9px; }
+        .cell.edge-right::before { width: 1.8px; left: 50%; margin-left: -0.9px; }
         .cell.disabled { cursor: not-allowed; }
         .stone { width: 92%; height: 92%; border-radius: 50%; z-index: 2; pointer-events: none; }
         .stone.black, .stone.white, .stone.yellow { background-size: cover; }
@@ -67,7 +74,7 @@
         .stone.yellow { background: radial-gradient(circle at 28% 28%, #f5e0c4 0%, #e8b878 18%, #d49250 45%, #6b4423 72%, #2a1810 100%); box-shadow: inset 4px 4px 10px rgba(255,248,235,0.5), inset -3px -3px 8px rgba(0,0,0,0.32), 0 5px 10px rgba(0,0,0,0.35); }
         .stone.last { box-shadow: 0 0 0 1.5px #c0392b; }
         .stone.white.last, .stone.yellow.last { box-shadow: inset -2px -2px 6px rgba(0,0,0,0.12), 0 0 0 1.5px #c0392b; }
-        .yellow-stone-cross { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 190%; height: 190%; background: transparent; background-image: linear-gradient(#daa84b,#daa84b), linear-gradient(#daa84b,#daa84b); background-size: 100% 2.5px, 2.5px 100%; background-position: center; background-repeat: no-repeat; opacity: 0.9; pointer-events: none; z-index: 1; }
+        .yellow-stone-cross { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 195%; height: 195%; background: transparent; background-image: linear-gradient(#daa84b,#daa84b), linear-gradient(#daa84b,#daa84b); background-size: 100% 2.5px, 2.5px 100%; background-position: center; background-repeat: no-repeat; opacity: 0.9; pointer-events: none; z-index: 1; }
         .dead-stone-x { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -56%); color: #c62828; font-weight: 900; font-size: 1.05rem; line-height: 1; text-shadow: 0 0 2px rgba(255,255,255,0.8); pointer-events: none; z-index: 3; }
         .star-dot { position: absolute; width: 4px; height: 4px; background: #333; border-radius: 50%; z-index: 1; }
         .cell .territory-dot { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 28%; height: 28%; border-radius: 50%; pointer-events: none; z-index: 1; }
@@ -78,17 +85,17 @@
         .cell .territory-dot.territory-threat-dot { background: rgba(120, 120, 120, 0.38); box-shadow: 0 0 0 1px rgba(70,70,70,0.14); }
         .buttons { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
         .btn { padding: 6px 12px; font-size: 0.72rem; font-family: 'Noto Sans KR', sans-serif; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; }
-        .btn-primary { background: #8b6914; color: white; }
-        .btn-primary:hover { background: #6b5010; }
-        .btn-secondary { background: #ddd; color: #333; }
+        .btn-primary { background: #2d2d2d; color: #fff; }
+        .btn-primary:hover { background: #1a1a1a; }
+        .btn-secondary { background: #e8e8e8; color: #333; }
         .btn-secondary:hover { background: #ccc; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .message { margin-top: 8px; font-size: 0.7rem; font-weight: 700; min-height: 18px; text-align: center; line-height: 1.35; }
         .board-size { margin: 10px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
         .board-size span { font-weight: 700; font-size: 0.8rem; }
         .board-size .btn { padding: 6px 12px; font-size: 0.72rem; }
-        .board-size .btn.active { background: #8b6914; color: white; }
-        .time-btn.active { background: #8b6914; color: white; }
+        .board-size .btn.active { background: #2d2d2d; color: #fff; }
+        .time-btn.active { background: #2d2d2d; color: #fff; }
         .screen { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 520px; }
         .screen.hidden { display: none !important; }
         .screen-game { width: 100%; max-width: 520px; }
@@ -96,22 +103,22 @@
         .game-left { display: flex; flex-direction: column; align-items: center; flex-shrink: 1; min-width: 0; }
         .game-right { display: flex; flex-direction: column; gap: 20px; min-width: 100px; flex-shrink: 0; }
         .sidebar-time { display: flex; flex-direction: column; gap: 12px; }
-        .sidebar-time-row { display: flex; align-items: center; gap: 10px; font-size: 1rem; font-weight: 700; color: #5d4e37; }
+        .sidebar-time-row { display: flex; align-items: center; gap: 10px; font-size: 1rem; font-weight: 700; color: #1a1a1a; }
         .sidebar-stone-icon { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; }
         .sidebar-stone-icon.black { background: radial-gradient(circle at 28% 28%, #6a6a6a 0%, #3a3a3a 20%, #1f1f1f 45%, #0a0a0a 75%, #000 100%); box-shadow: inset 2px 2px 6px rgba(255,255,255,0.28), 0 2px 6px rgba(0,0,0,0.4); }
         .sidebar-stone-icon.white { background: radial-gradient(circle at 28% 28%, #fff 0%, #f0f0f0 15%, #d8d8d8 40%, #b8b8b8 70%, #9a9a9a 100%); box-shadow: inset 2px 2px 6px rgba(255,255,255,0.95), 0 2px 6px rgba(0,0,0,0.25); border: 1px solid #999; }
-        .sidebar-result { display: none; text-align: center; padding: 20px 16px; background: rgba(255,255,255,0.9); border-radius: 12px; border: 1px solid rgba(93,78,55,0.25); }
+        .sidebar-result { display: none; text-align: center; padding: 20px 16px; background: #fff; border-radius: 12px; border: 1px solid rgba(0,0,0,0.1); }
         .sidebar-result.show { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-        .sidebar-result-title { font-size: 0.85rem; font-weight: 700; color: #5d4e37; }
+        .sidebar-result-title { font-size: 0.85rem; font-weight: 700; color: #1a1a1a; }
         .sidebar-result-stones { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; }
         .sidebar-result-stone { width: 48px; height: 48px; border-radius: 50%; }
         .sidebar-result-stone.black { background: radial-gradient(circle at 28% 28%, #6a6a6a 0%, #3a3a3a 20%, #1f1f1f 45%, #0a0a0a 75%, #000 100%); box-shadow: inset 3px 3px 8px rgba(255,255,255,0.28), 0 4px 12px rgba(0,0,0,0.5); }
         .sidebar-result-stone.white { background: radial-gradient(circle at 28% 28%, #fff 0%, #f0f0f0 15%, #d8d8d8 40%, #b8b8b8 70%, #9a9a9a 100%); box-shadow: inset 3px 3px 8px rgba(255,255,255,0.95), 0 4px 12px rgba(0,0,0,0.3); border: 1px solid #999; }
         .sidebar-result-stone.winner { box-shadow: 0 0 0 3px #c0392b; }
-        .sidebar-result-text { font-size: 1.25rem; font-weight: 800; color: #5d4e37; }
-        .count-request-wrap { margin-top: 10px; padding: 12px; background: rgba(255,255,255,0.95); border: 1px solid rgba(139,105,20,0.4); border-radius: 8px; text-align: center; }
+        .sidebar-result-text { font-size: 1.25rem; font-weight: 800; color: #1a1a1a; }
+        .count-request-wrap { margin-top: 10px; padding: 12px; background: #fff; border: 1px solid rgba(0,0,0,0.12); border-radius: 8px; text-align: center; }
         .count-request-wrap.hidden { display: none !important; }
-        .count-request-message { font-size: 0.8rem; font-weight: 700; color: #5d4e37; margin-bottom: 10px; }
+        .count-request-message { font-size: 0.8rem; font-weight: 700; color: #1a1a1a; margin-bottom: 10px; }
         .count-request-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
         .count-request-cancel-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 6px; }
         .count-request-cancel-btns.hidden { display: none !important; }
@@ -152,10 +159,10 @@
             .buttons { width: 100%; justify-content: center; }
             .board-wrap { margin: 0 auto; }
         }
-        .stone-choosing { margin-top: 16px; padding: 16px; background: rgba(93,78,55,0.12); border: 2px solid rgba(93,78,55,0.3); border-radius: 10px; }
+        .stone-choosing { margin-top: 16px; padding: 16px; background: #f0f0f0; border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; }
         .stone-choosing.hidden { display: none !important; }
-        .stone-choosing-label { font-size: 1rem; font-weight: 800; color: #5d4e37; margin-bottom: 6px; }
-        .stone-choosing-prompt { font-size: 0.9rem; font-weight: 700; color: #5d4e37; margin-bottom: 12px; }
+        .stone-choosing-label { font-size: 1rem; font-weight: 800; color: #1a1a1a; margin-bottom: 6px; }
+        .stone-choosing-prompt { font-size: 0.9rem; font-weight: 700; color: #333; margin-bottom: 12px; }
         .stone-choosing-btns { display: flex; gap: 14px; justify-content: center; }
         .btn-stone-black { min-width: 72px; padding: 10px 16px; font-size: 0.9rem; background: #2d2d2d; color: #fff; }
         .btn-stone-white { min-width: 72px; padding: 10px 16px; font-size: 0.9rem; background: #f0f0f0; color: #333; border: 2px solid #999; }
@@ -168,36 +175,38 @@
         .match-status { margin-top: 10px; font-size: 0.75rem; min-height: 1.2em; color: #c0392b; font-weight: 600; }
         .match-status.ok { color: #27ae60; }
         .match-status code { background: rgba(0,0,0,0.06); padding: 1px 4px; border-radius: 3px; font-size: 0.85em; }
-        .match-menu-title { font-size: 1rem; color: #5d4e37; margin: 18px 0 10px; padding-bottom: 4px; border-bottom: 1px solid rgba(93,78,55,0.2); }
+        .match-menu-title { font-size: 1rem; color: #1a1a1a; margin: 18px 0 10px; padding-bottom: 4px; border-bottom: 1px solid rgba(0,0,0,0.12); }
         .match-menu-title:first-of-type { margin-top: 12px; }
         .available-rooms-desc { font-size: 0.8rem; color: #666; margin: 0 0 8px; }
         .available-rooms-list { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
-        .available-rooms-list .room-chip { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(255,255,255,0.9); border-radius: 8px; border: 1px solid rgba(93,78,55,0.2); cursor: pointer; transition: background 0.2s; }
-        .available-rooms-list .room-chip:hover { background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .available-rooms-list .room-chip { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; background: #fff; border-radius: 8px; border: 1px solid rgba(0,0,0,0.1); cursor: pointer; transition: background 0.2s; }
+        .available-rooms-list .room-chip:hover { background: #f8f8f8; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
         .available-rooms-list .room-chip .room-chip-id { font-weight: 700; letter-spacing: 1px; }
         .available-rooms-list .room-chip .room-chip-meta { font-size: 0.75rem; color: #666; }
         .available-rooms-empty { font-size: 0.8rem; color: #666; margin: 8px 0 12px; }
         .match-code-details { margin-top: 12px; font-size: 0.85rem; }
-        .match-code-details summary { cursor: pointer; color: #5d4e37; list-style: none; }
+        .match-code-details summary { cursor: pointer; color: #1a1a1a; list-style: none; }
         .match-code-details summary::-webkit-details-marker { display: none; }
         .match-code-details summary::before { content: '+'; display: inline-block; width: 1em; margin-right: 4px; font-weight: 700; }
         .match-code-details[open] summary::before { content: '-'; }
         .match-code-details .input-group { margin-top: 8px; }
-        /* 대국실 목록 - 미니보드(248px)에 맞춘 레이아웃 */
-        #section-games { max-width: 860px; }
-        .lobby-title { font-size: 1.1rem; color: #5d4e37; margin-bottom: 14px; }
-        .lobby-limit { font-size: 0.8rem; color: #888; margin-top: 6px; margin-bottom: 14px; }
+        /* 대국실 목록 - 미니보드(248px)에 맞춘 레이아웃, 로고 톤에 맞춘 편안한 첫 화면 */
+        #section-games { max-width: 860px; padding: 20px 16px; background: #fafafa; border-radius: 16px; border: 1px solid rgba(0,0,0,0.06); }
+        .lobby-header { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 14px; }
+        .lobby-header .lobby-logo { height: 48px; width: auto; border-radius: 8px; }
+        .lobby-title { font-size: 1.1rem; color: #1a1a1a; margin: 0; }
+        .lobby-limit { font-size: 0.8rem; color: #666; margin-top: 6px; margin-bottom: 14px; }
         .room-list { width: 100%; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
         @media (max-width: 640px) { .room-list { grid-template-columns: 1fr; } }
         .room-list li { margin: 0; min-width: 0; }
-        .room-card { display: flex; flex-direction: column; padding: 12px; background: rgba(255,255,255,0.85); border-radius: 12px; border: 1px solid rgba(93,78,55,0.25); cursor: pointer; transition: background 0.2s, box-shadow 0.2s; min-width: 0; }
-        .room-card:hover { background: rgba(255,255,255,0.98); box-shadow: 0 6px 16px rgba(0,0,0,0.12); }
+        .room-card { display: flex; flex-direction: column; padding: 12px; background: #fff; border-radius: 12px; border: 1px solid rgba(0,0,0,0.08); cursor: pointer; transition: background 0.2s, box-shadow 0.2s; min-width: 0; }
+        .room-card:hover { background: #fafafa; box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
         .room-card.full { cursor: default; }
-        .room-card.full:hover { background: rgba(255,255,255,0.9); }
-        .room-card .room-id { font-weight: 700; letter-spacing: 1px; font-size: 0.95rem; }
+        .room-card.full:hover { background: #fff; }
+        .room-card .room-id { font-weight: 700; letter-spacing: 1px; font-size: 0.95rem; color: #1a1a1a; }
         .room-card .room-meta { font-size: 0.75rem; color: #666; margin-top: 4px; }
         .room-card .room-players { font-size: 0.8rem; margin-top: 6px; }
-        .room-card .mini-board-wrap { margin-top: 10px; display: flex; justify-content: center; align-items: center; min-height: 264px; background: #e8d5c4; border-radius: 8px; padding: 10px; }
+        .room-card .mini-board-wrap { margin-top: 10px; display: flex; justify-content: center; align-items: center; min-height: 264px; background: #f0f0f0; border-radius: 8px; padding: 10px; }
         .room-card .mini-board-canvas { display: block; border-radius: 6px; width: 248px; height: 248px; }
         .room-card .mini-board .mini-cell { width: 100%; aspect-ratio: 1; position: relative; display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
         .room-card .mini-board .mini-cell::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #333; transform: translateX(-50%); }
@@ -222,38 +231,40 @@
         .lobby-limit { font-size: 0.75rem; color: #888; margin-top: 8px; }
         /* 배우기 */
         .learn-content { text-align: left; width: 100%; padding: 0 8px; }
-        .learn-content h2 { font-size: 0.95rem; color: #5d4e37; margin: 16px 0 8px; }
+        .learn-content h2 { font-size: 0.95rem; color: #1a1a1a; margin: 16px 0 8px; }
         .learn-content p, .learn-content ul { font-size: 0.8rem; line-height: 1.6; color: #444; margin-bottom: 8px; }
         .learn-content ul { padding-left: 20px; }
         /* 로그인/회원가입 */
         .auth-nav { display: flex; align-items: center; gap: 8px; }
-        .auth-nav .user-name { font-size: 0.85rem; color: #f5e6d3; }
+        .auth-nav .user-name { font-size: 0.85rem; color: #333; }
         .auth-panel { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; display: none; align-items: center; justify-content: center; padding: 20px; }
         .auth-panel.show { display: flex; }
         .auth-box { background: #fff; border-radius: 12px; padding: 24px; max-width: 320px; width: 100%; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
-        .auth-box h2 { font-size: 1.1rem; color: #5d4e37; margin-bottom: 16px; }
+        .auth-box .auth-logo { display: block; height: 44px; width: auto; margin: 0 auto 16px; border-radius: 8px; }
+        .auth-box h2 { font-size: 1.1rem; color: #1a1a1a; margin-bottom: 16px; }
         .auth-box .input-group { margin-bottom: 12px; }
-        .auth-box label { display: block; font-size: 0.8rem; font-weight: 600; color: #5d4e37; margin-bottom: 4px; }
+        .auth-box label { display: block; font-size: 0.8rem; font-weight: 600; color: #333; margin-bottom: 4px; }
         .auth-box input { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.9rem; box-sizing: border-box; }
         .auth-box .auth-error { font-size: 0.8rem; color: #c0392b; margin-bottom: 8px; min-height: 1.2em; }
         .auth-box .auth-btns { display: flex; gap: 8px; margin-top: 16px; }
         .auth-box .auth-tabs { display: flex; gap: 0; margin-bottom: 16px; }
         .auth-box .auth-tabs button { padding: 8px 16px; border: 1px solid #ccc; background: #f5f5f5; cursor: pointer; font-size: 0.85rem; }
-        .auth-box .auth-tabs button.active { background: #8b6914; color: #fff; border-color: #8b6914; }
+        .auth-box .auth-tabs button.active { background: #2d2d2d; color: #fff; border-color: #2d2d2d; }
         .auth-login-wrap, .auth-register-wrap { display: none; }
         .auth-login-wrap.show, .auth-register-wrap.show { display: block; }
-        .login-required-msg { background: rgba(139,105,20,0.12); border: 1px solid rgba(139,105,20,0.3); border-radius: 8px; padding: 12px; margin-bottom: 14px; font-size: 0.85rem; color: #5d4e37; }
+        .login-required-msg { background: #f0f0f0; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; padding: 12px; margin-bottom: 14px; font-size: 0.85rem; color: #333; }
     </style>
 </head>
 <body>
     <nav class="game-nav">
         <div class="game-nav-inner">
-            <span class="brand">루카바둑</span>
+            <a href="/lukabaduk.html" class="brand" onclick="closeMobileNav(); return true;"><img src="/images/LKBK_Logo_Square_kor.png" alt="루카바둑" /><span>루카바둑</span></a>
             <div class="game-nav-links">
-                <a href="#" id="nav-learn" onclick="showMainSection('learn'); closeMobileNav(); return false;">배우기</a>
-                <a href="#" id="nav-match" class="active" onclick="showMainSection('match'); closeMobileNav(); return false;">경기하기</a>
-                <a href="#" id="nav-games" onclick="showMainSection('games'); closeMobileNav(); return false;">대국실현황</a>
+                <a href="#" id="nav-games" class="active" onclick="showMainSection('games'); closeMobileNav(); return false;">대국실현황</a>
+                <a href="#" id="nav-match" onclick="showMainSection('match'); closeMobileNav(); return false;">경기하기</a>
                 <a href="/lukabaduk-single.html" id="nav-single">혼자두기</a>
+                <a href="#" id="nav-learn" onclick="showMainSection('learn'); closeMobileNav(); return false;">배우기</a>
+                <a href="/intro" id="nav-intro">루카바둑소개</a>
                 <span class="spacer"></span>
                 <span class="auth-nav" id="auth-nav">
                     <a href="#" id="nav-login" onclick="showAuthPanel('login'); closeMobileNav(); return false;">로그인</a>
@@ -263,7 +274,7 @@
                     <span class="user-name" id="nav-username"></span>
                     <a href="#" onclick="doLogout(); closeMobileNav(); return false;">로그아웃</a>
                 </span>
-                <a href="/" class="back-to-site">메인으로</a>
+                <a href="/intro" class="back-to-site">루카바둑소개</a>
             </div>
             <button type="button" class="game-nav-toggle" id="game-nav-toggle" aria-label="메뉴 열기" onclick="toggleMobileNav()">
                 <span class="game-nav-toggle-bar"></span>
@@ -272,10 +283,11 @@
             </button>
         </div>
         <div class="game-nav-drawer" id="game-nav-drawer">
-            <a href="#" data-section="learn" onclick="showMainSection('learn'); closeMobileNav(); return false;">배우기</a>
-            <a href="#" data-section="match" class="active" onclick="showMainSection('match'); closeMobileNav(); return false;">경기하기</a>
-            <a href="#" data-section="games" onclick="showMainSection('games'); closeMobileNav(); return false;">대국실현황</a>
+            <a href="#" data-section="games" class="active" onclick="showMainSection('games'); closeMobileNav(); return false;">대국실현황</a>
+            <a href="#" data-section="match" onclick="showMainSection('match'); closeMobileNav(); return false;">경기하기</a>
             <a href="/lukabaduk-single.html" onclick="closeMobileNav();">혼자두기</a>
+            <a href="#" data-section="learn" onclick="showMainSection('learn'); closeMobileNav(); return false;">배우기</a>
+            <a href="/intro" onclick="closeMobileNav();">루카바둑소개</a>
             <span class="auth-nav" id="drawer-auth-guest">
                 <a href="#" onclick="showAuthPanel('login'); closeMobileNav(); return false;">로그인</a>
                 <a href="#" onclick="showAuthPanel('register'); closeMobileNav(); return false;">회원가입</a>
@@ -284,12 +296,12 @@
                 <span class="user-name" id="drawer-username"></span>
                 <a href="#" onclick="doLogout(); closeMobileNav(); return false;">로그아웃</a>
             </span>
-            <a href="/" onclick="closeMobileNav();">메인으로</a>
         </div>
     </nav>
 
     <div class="auth-panel" id="auth-panel" onclick="if(event.target===this) hideAuthPanel()">
         <div class="auth-box" onclick="event.stopPropagation()">
+            <img src="/images/LKBK_Logo_Square_kor.png" alt="루카바둑" class="auth-logo" />
             <div class="auth-tabs">
                 <button type="button" id="auth-tab-login" class="active" onclick="switchAuthTab('login')">로그인</button>
                 <button type="button" id="auth-tab-register" onclick="switchAuthTab('register')">회원가입</button>
@@ -311,7 +323,7 @@
         </div>
     </div>
 
-    <section id="section-match" class="screen">
+    <section id="section-match" class="screen hidden">
         <h1>경기하기</h1>
         <div class="login-required-msg" id="login-required-msg" style="display:none;">경기는 로그인 후 이용할 수 있습니다. 위 메뉴에서 <strong>로그인</strong> 또는 <strong>회원가입</strong>을 해 주세요.</div>
 
@@ -351,8 +363,8 @@
         <p class="lobby-limit">동시 대국실 최대 6개</p>
     </section>
 
-    <section id="section-games" class="screen hidden">
-        <h1 class="lobby-title">대국실현황</h1>
+    <section id="section-games" class="screen">
+        <div class="lobby-header"><img src="/images/LKBK_Logo_Square_kor.png" alt="루카바둑" class="lobby-logo" /><h1 class="lobby-title">대국실현황</h1></div>
         <p class="lobby-limit">참가 가능한 방 목록 (최대 6개) · 클릭하여 입장</p>
         <ul class="room-list" id="room-list"></ul>
         <p class="lobby-empty" id="lobby-empty" style="display:none;">진행 중인 대국실이 없습니다. 경기하기에서 방을 만들어 보세요.</p>

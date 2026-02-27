@@ -7,10 +7,15 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Noto Sans KR', sans-serif; min-height: 100vh; background: linear-gradient(180deg, #f5e6d3 0%, #e8d5c4 100%); display: flex; flex-direction: column; align-items: center; padding: 16px 12px; padding-top: 48px; }
-        .back-link { position: fixed; top: 12px; left: 12px; z-index: 100; font-size: 0.8rem; color: #5d4e37; text-decoration: none; padding: 6px 10px; border-radius: 6px; background: rgba(255,255,255,0.9); box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
-        .back-link:hover { background: #fff; color: #333; }
-        h1 { font-size: 1.15rem; color: #5d4e37; margin-bottom: 6px; }
+        body { font-family: 'Noto Sans KR', sans-serif; min-height: 100vh; background: #f5f5f5; display: flex; flex-direction: column; align-items: center; padding: 16px 12px; padding-top: 56px; }
+        .single-header { position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #fff; color: #1a1a1a; box-shadow: 0 1px 0 rgba(0,0,0,0.08); min-height: 48px; }
+        .single-header .back-link { position: static; font-size: 0.8rem; color: #333; text-decoration: none; padding: 6px 10px; border-radius: 6px; background: transparent; box-shadow: none; }
+        .single-header .back-link:hover { background: rgba(0,0,0,0.04); color: #1a1a1a; }
+        .single-header .single-brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1rem; color: #1a1a1a; text-decoration: none; }
+        .single-header .single-brand:hover { color: #000; }
+        .single-header .single-brand img { height: 32px; width: auto; border-radius: 6px; }
+        .single-header .single-brand span { margin-left: 4px; }
+        h1 { font-size: 1.15rem; color: #1a1a1a; margin-bottom: 6px; }
         .info { display: flex; gap: 14px; margin-bottom: 8px; font-size: 0.75rem; flex-wrap: wrap; justify-content: center; }
         .info span { font-weight: 700; }
         .board-wrap { background: #c4a574; padding: 12px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.3); }
@@ -22,6 +27,11 @@
         .cell.edge-bottom::before { height: 50%; bottom: 50%; top: auto; }
         .cell.edge-left::after { width: 50%; left: 50%; }
         .cell.edge-right::after { width: 50%; right: 50%; left: auto; }
+        /* 격자 가장 바깥줄(9·13·19선) 살짝 두껍게 */
+        .cell.edge-top::after { height: 1.8px; top: 50%; margin-top: -0.9px; }
+        .cell.edge-bottom::after { height: 1.8px; top: 50%; margin-top: -0.9px; }
+        .cell.edge-left::before { width: 1.8px; left: 50%; margin-left: -0.9px; }
+        .cell.edge-right::before { width: 1.8px; left: 50%; margin-left: -0.9px; }
         .stone { width: 92%; height: 92%; border-radius: 50%; z-index: 2; pointer-events: none; }
         .stone.black { background: radial-gradient(circle at 28% 28%, #6a6a6a 0%, #3a3a3a 20%, #1f1f1f 45%, #0a0a0a 75%, #000 100%); box-shadow: inset 4px 4px 10px rgba(255,255,255,0.28), inset -3px -3px 8px rgba(0,0,0,0.7), 0 5px 10px rgba(0,0,0,0.5); }
         .stone.white { background: radial-gradient(circle at 28% 28%, #fff 0%, #f0f0f0 15%, #d8d8d8 40%, #b8b8b8 70%, #9a9a9a 100%); box-shadow: inset 5px 5px 12px rgba(255,255,255,0.95), inset -2px -2px 6px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.28); }
@@ -29,8 +39,12 @@
         .stone.last { box-shadow: inset 4px 4px 10px rgba(255,255,255,0.28), inset -3px -3px 8px rgba(0,0,0,0.7), 0 5px 10px rgba(0,0,0,0.5), 0 0 0 1.5px #c0392b; }
         .stone.white.last { box-shadow: inset 5px 5px 12px rgba(255,255,255,0.95), inset -2px -2px 6px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.28), 0 0 0 1.5px #c0392b; }
         .stone.yellow.last { box-shadow: inset 4px 4px 10px rgba(255,250,240,0.5), inset -3px -3px 8px rgba(0,0,0,0.32), 0 5px 10px rgba(0,0,0,0.35), 0 0 0 1.5px #c0392b; }
-        .yellow-stone-cross { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 190%; height: 190%; background: transparent; background-image: linear-gradient(#daa84b,#daa84b), linear-gradient(#daa84b,#daa84b); background-size: 100% 2.5px, 2.5px 100%; background-position: center; background-repeat: no-repeat; opacity: 0.9; pointer-events: none; z-index: 1; }
+        .yellow-stone-cross { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 195%; height: 195%; background: transparent; background-image: linear-gradient(#daa84b,#daa84b), linear-gradient(#daa84b,#daa84b); background-size: 100% 2.5px, 2.5px 100%; background-position: center; background-repeat: no-repeat; opacity: 0.9; pointer-events: none; z-index: 1; }
         .dead-stone-x { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -56%); color: #c62828; font-weight: 900; font-size: 1.05rem; line-height: 1; text-shadow: 0 0 2px rgba(255,255,255,0.8); pointer-events: none; z-index: 3; }
+        .move-number { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 0.95em; font-weight: 900; line-height: 1; pointer-events: none; z-index: 3; -webkit-text-stroke: 0.02em currentColor; }
+        .move-number.on-black { color: #fff; text-shadow: 0 0 1px #000, 0 1px 1px #000; }
+        .move-number.on-white { color: #000; text-shadow: 0 0 1px #fff, 0 1px 1px #fff; }
+        .alphabet-label { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 0.95em; font-weight: 800; line-height: 1; color: #1a1a1a; min-width: 1.2em; min-height: 1.2em; display: flex; align-items: center; justify-content: center; background: #daa84b; border-radius: 50%; text-shadow: 0 0 1px #fff, 0 1px 2px rgba(255,255,255,0.9); pointer-events: none; z-index: 4; }
         .star-dot { position: absolute; width: 4px; height: 4px; background: #333; border-radius: 50%; z-index: 1; }
         .cell .territory-dot { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 28%; height: 28%; border-radius: 50%; pointer-events: none; z-index: 1; }
         .cell .territory-dot.territory-black-dot { background: rgba(60, 90, 150, 0.85); }
@@ -52,6 +66,22 @@
         .board-size .btn { padding: 6px 12px; font-size: 0.72rem; }
         .board-size .btn.active { background: #8b6914; color: white; }
         .time-btn.active { background: #8b6914; color: white; }
+        .theme-btn.active { background: #8b6914; color: white; }
+        /* 흑백 바둑판 테마: 흰 바둑판, 검정 선, 흑돌=검정/백돌=흰색(무그라데이션), 황색돌=흰색+흰 십자가 */
+        .board-wrap.theme-bw { --theme-bw-bg: #fff; background: #e8e8e8; box-shadow: none; }
+        .board-wrap.theme-bw .board { background: var(--theme-bw-bg); box-shadow: none; }
+        .board-wrap.theme-bw .cell::before,
+        .board-wrap.theme-bw .cell::after { background: #000; }
+        .board-wrap.theme-bw .star-dot { background: #000; }
+        .board-wrap.theme-bw .stone.black { background: #000; box-shadow: none; border: 1px solid #000; }
+        .board-wrap.theme-bw .stone.white { background: #fff; box-shadow: none; border: 1px solid #000; }
+        .board-wrap.theme-bw .stone.yellow { background: var(--theme-bw-bg); box-shadow: none; border: 1px solid var(--theme-bw-bg); opacity: 1; }
+        .board-wrap.theme-bw .yellow-stone-cross { opacity: 1 !important; background: transparent; background-image: linear-gradient(var(--theme-bw-bg),var(--theme-bw-bg)), linear-gradient(var(--theme-bw-bg),var(--theme-bw-bg)); background-size: 100% 2.5px, 2.5px 100%; background-position: center; background-repeat: no-repeat; }
+        .board-wrap.theme-bw .stone.last { box-shadow: 0 0 0 1.5px #e74c3c; }
+        .board-wrap.theme-bw .stone.white.last { box-shadow: 0 0 0 1.5px #e74c3c; border-color: #000; }
+        .board-wrap.theme-bw .stone.yellow.last { box-shadow: 0 0 0 1.5px #e74c3c; border-color: var(--theme-bw-bg); }
+        .board-wrap.theme-bw .dead-stone-x { color: #c62828; }
+        .board-wrap.theme-bw .alphabet-label { background: #fff; color: #000; text-shadow: 0 0 1px #fff, 0 1px 1px rgba(0,0,0,0.08); }
         .screen { display: flex; flex-direction: column; align-items: center; }
         .screen.hidden { display: none !important; }
         .screen-start .mode-btns { margin: 12px 0; }
@@ -115,7 +145,11 @@
     </style>
 </head>
 <body>
-    <a href="/lukabaduk.html" class="back-link">&lt; 경기하기로</a>
+    <header class="single-header">
+        <a href="/lukabaduk.html" class="back-link">&lt; 경기하기로</a>
+        <a href="/lukabaduk.html" class="single-brand"><img src="/images/LKBK_Logo_Square_kor.png" alt="루카바둑" /><span>루카바둑</span></a>
+        <span style="width: 90px;"></span>
+    </header>
     <div id="screen-start" class="screen">
         <h1>혼자두기</h1>
         <div class="board-size">
@@ -131,6 +165,13 @@
                 <button type="button" class="btn btn-secondary time-btn active" id="time-3-10" onclick="setTimeLimit(180, 10)" title="초기 3분, 매 수 +10초">3분+10초</button>
                 <button type="button" class="btn btn-secondary time-btn" id="time-5-20" onclick="setTimeLimit(300, 20)" title="초기 5분, 매 수 +20초">5분+20초</button>
                 <button type="button" class="btn btn-secondary time-btn" id="time-10-30" onclick="setTimeLimit(600, 30)" title="초기 10분, 매 수 +30초">10분+30초</button>
+            </div>
+        </div>
+        <div class="board-theme" style="margin: 10px 0;">
+            <span style="font-weight: 700; font-size: 0.8rem;">흑백바둑판 선택:</span>
+            <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+                <button type="button" class="btn btn-secondary theme-btn active" id="theme-normal" onclick="setBoardTheme('normal')">일반(나무)</button>
+                <button type="button" class="btn btn-secondary theme-btn" id="theme-bw" onclick="setBoardTheme('bw')">흑백</button>
             </div>
         </div>
         <div class="mode-btns">
@@ -163,6 +204,8 @@
                     <button class="btn btn-secondary" onclick="countScore()">집계산</button>
                     <button class="btn btn-primary" onclick="requestCount()">계가신청</button>
                     <button class="btn btn-secondary" onclick="judgePosition()">형세판단</button>
+                    <button type="button" class="btn btn-secondary" id="btn-move-numbers" onclick="toggleMoveNumbers()" title="1~20수까지 돌 위에 수순 표시">수순표기</button>
+                    <button type="button" class="btn btn-secondary" id="btn-alphabet" onclick="toggleAlphabetMode()" title="참고도용 A,B,C… 표기 (토글 끄면 모두 지우고 대국 진행)">알파벳표기</button>
                     <button class="btn btn-primary" onclick="resetGame()">새 게임</button>
                 </div>
                 <p class="message" id="message"></p>

@@ -25,8 +25,57 @@ var blackTimeRemaining = 180, whiteTimeRemaining = 180, timerIntervalId = null;
 const boardEl = document.getElementById('board'), turnEl = document.getElementById('turn'), capBlackEl = document.getElementById('cap-black'), capWhiteEl = document.getElementById('cap-white'), passCountEl = document.getElementById('pass-count'), messageEl = document.getElementById('message');
 var timeBlackEl = document.getElementById('time-black'), timeWhiteEl = document.getElementById('time-white');
 
+var boardTheme = 'normal';
+var showMoveNumbers = false;
+var moveNumberDisplayStart = 0;
+var MAX_MOVE_NUM_DISPLAY = 20;
+var alphabetMode = false;
+var alphabetOrder = [];
+var MAX_ALPHABET = 26;
+function toggleAlphabetMode() {
+    alphabetMode = !alphabetMode;
+    if (!alphabetMode) alphabetOrder = [];
+    var btn = document.getElementById('btn-alphabet');
+    if (btn) { btn.classList.toggle('active', alphabetMode); btn.textContent = alphabetMode ? '알파벳표기 켜짐' : '알파벳표기'; }
+    renderStones();
+}
+function addAlphabetLabel(row, col) {
+    var key = row + ',' + col;
+    var idx = alphabetOrder.findIndex(function (p) { return p.r === row && p.c === col; });
+    if (idx >= 0) {
+        alphabetOrder.splice(idx, 1);
+    } else if (alphabetOrder.length < MAX_ALPHABET) {
+        alphabetOrder.push({ r: row, c: col });
+    }
+    renderStones();
+}
+function toggleMoveNumbers() {
+    showMoveNumbers = !showMoveNumbers;
+    if (showMoveNumbers) moveNumberDisplayStart = moveHistory.length;
+    var btn = document.getElementById('btn-move-numbers');
+    if (btn) { btn.classList.toggle('active', showMoveNumbers); btn.textContent = showMoveNumbers ? '수순표기 켜짐' : '수순표기'; }
+    renderStones();
+}
 function setBoardSize(size) { SIZE = size; document.querySelectorAll('.board-size .btn').forEach(b => b.classList.remove('active')); var el = document.getElementById('size-' + size); if (el) el.classList.add('active'); }
-function showScreen(id) { document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden')); const el = document.getElementById(id); if (el) el.classList.remove('hidden'); }
+function setBoardTheme(theme) {
+    boardTheme = theme;
+    document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+    var el = document.getElementById('theme-' + theme);
+    if (el) el.classList.add('active');
+    applyBoardTheme();
+}
+function applyBoardTheme() {
+    var wrap = document.querySelector('.board-wrap');
+    if (!wrap) return;
+    if (boardTheme === 'bw') wrap.classList.add('theme-bw');
+    else wrap.classList.remove('theme-bw');
+}
+function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden'));
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('hidden');
+    if (id === 'screen-game') applyBoardTheme();
+}
 function goToStart() { clearDeadStoneMarks(); showScreen('screen-start'); }
 function setTimeLimit(baseSeconds, byoYomiSeconds) {
     timeConfig.base = baseSeconds;
@@ -149,6 +198,7 @@ function removeGroup(r, c) {
 function boardSignature() { return board.map(row => row.join('')).join(''); }
 
 function placeStone(row, col) {
+    if (alphabetMode) { addAlphabetLabel(row, col); return; }
     if (scoringInspectMode && board[row][col] !== EMPTY) { toggleDeadStoneMark(row, col); return; }
     if (gameEnded || board[row][col] !== EMPTY) return;
     if (countRequestedBy) return;
@@ -1016,7 +1066,12 @@ function updateUI() {
     turnEl.textContent = txt; capBlackEl.textContent = capturedBlack; capWhiteEl.textContent = capturedWhite;
 }
 function renderStones() {
-    boardEl.querySelectorAll('.cell').forEach(cell => { cell.querySelector('.stone')?.remove(); cell.querySelector('.yellow-stone-cross')?.remove(); cell.querySelector('.dead-stone-x')?.remove(); });
+    boardEl.querySelectorAll('.cell').forEach(cell => { cell.querySelector('.stone')?.remove(); cell.querySelector('.yellow-stone-cross')?.remove(); cell.querySelector('.dead-stone-x')?.remove(); cell.querySelector('.move-number')?.remove(); cell.querySelector('.alphabet-label')?.remove(); });
+    var moveNumMap = {};
+    moveHistory.forEach(function (m, i) {
+        var displayNum = i - moveNumberDisplayStart + 1;
+        if (displayNum >= 1 && displayNum <= MAX_MOVE_NUM_DISPLAY) moveNumMap[m.row + ',' + m.col] = displayNum;
+    });
     for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
         if (board[r][c] === EMPTY) continue;
         const cell = boardEl.children[r * SIZE + c];
@@ -1026,12 +1081,28 @@ function renderStones() {
         stone.className = 'stone ' + stoneType;
         if (lastMove && lastMove[0] === r && lastMove[1] === c) stone.classList.add('last');
         cell.appendChild(stone);
+        var num = moveNumMap[r + ',' + c];
+        if (showMoveNumbers && num !== undefined) {
+            var span = document.createElement('span');
+            span.className = 'move-number ' + (stoneType === 'black' ? 'on-black' : 'on-white');
+            span.textContent = num;
+            cell.appendChild(span);
+        }
         if (deadStoneMarks.has(r + ',' + c)) {
             const x = document.createElement('div');
             x.className = 'dead-stone-x';
             x.textContent = 'X';
             cell.appendChild(x);
         }
+    }
+    for (var i = 0; i < alphabetOrder.length; i++) {
+        var pos = alphabetOrder[i];
+        var cell = boardEl.children[pos.r * SIZE + pos.c];
+        if (!cell) continue;
+        var span = document.createElement('span');
+        span.className = 'alphabet-label';
+        span.textContent = String.fromCharCode(65 + i);
+        cell.appendChild(span);
     }
 }
 function resetGame() {
@@ -1040,6 +1111,8 @@ function resetGame() {
     aiThinkState = null;
     if (gameMode === 'ai') aiGameStarted = true;
     boardHistory = []; moveHistory = []; blackMoveCount = 0; whiteMoveCount = 0; yellowAsBlack = new Set(); yellowAsWhite = new Set();
+    alphabetOrder = []; alphabetMode = false;
+    var ab = document.getElementById('btn-alphabet'); if (ab) { ab.classList.remove('active'); ab.textContent = '알파벳표기'; }
     clearDeadStoneMarks();
     blackTimeRemaining = timeConfig.base;
     whiteTimeRemaining = timeConfig.base;
