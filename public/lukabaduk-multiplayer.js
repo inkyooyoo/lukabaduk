@@ -16,6 +16,8 @@ let multiplayerTimerId = null;
 let deadStoneMarks = new Set(); // "r,c"
 let scoringInspectMode = false; // true after countScore/judgePosition until board changes
 let lastScoringView = null; // 'count' | 'judge' | null
+let isSpectator = false;
+let lastSentChatText = '';
 
 function getToken() { return localStorage.getItem(AUTH_STORAGE_KEY); }
 function setToken(token) { if (token) localStorage.setItem(AUTH_STORAGE_KEY, token); else localStorage.removeItem(AUTH_STORAGE_KEY); }
@@ -59,6 +61,37 @@ function switchAuthTab(tab) {
   document.getElementById('auth-tab-' + tab).classList.add('active');
   document.getElementById('auth-login-wrap').classList.toggle('show', tab === 'login');
   document.getElementById('auth-register-wrap').classList.toggle('show', tab === 'register');
+  if (tab === 'register') {
+    const pwEl = document.getElementById('register-password');
+    updatePasswordRulesUI(pwEl ? pwEl.value : '');
+  }
+}
+
+/** 서버와 동일한 비밀번호 규칙 검증 */
+function validatePasswordPolicy(password) {
+  if (!password || typeof password !== 'string') return { valid: false, message: '비밀번호를 입력하세요' };
+  if (password.length < 8) return { valid: false, message: '비밀번호는 8자 이상이어야 합니다' };
+  if (!/[A-Z]/.test(password)) return { valid: false, message: '영문 대문자를 1자 이상 포함해 주세요' };
+  if (!/[a-z]/.test(password)) return { valid: false, message: '영문 소문자를 1자 이상 포함해 주세요' };
+  if (!/[0-9]/.test(password)) return { valid: false, message: '숫자를 1자 이상 포함해 주세요' };
+  if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(password)) return { valid: false, message: '특수문자를 1자 이상 포함해 주세요' };
+  if (password.length > 128) return { valid: false, message: '비밀번호는 128자 이하여야 합니다' };
+  return { valid: true };
+}
+
+function updatePasswordRulesUI(password) {
+  const p = password || '';
+  const rules = {
+    'rule-len': p.length >= 8,
+    'rule-upper': /[A-Z]/.test(p),
+    'rule-lower': /[a-z]/.test(p),
+    'rule-num': /[0-9]/.test(p),
+    'rule-special': /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(p),
+  };
+  Object.keys(rules).forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('valid', rules[id]);
+  });
 }
 
 function doLogin() {
@@ -91,8 +124,14 @@ function doLogin() {
 function doRegister() {
   const username = (document.getElementById('register-username').value || '').trim();
   const password = document.getElementById('register-password').value || '';
+  const passwordConfirm = (document.getElementById('register-password-confirm') && document.getElementById('register-password-confirm').value) || '';
   const errEl = document.getElementById('auth-register-error');
-  if (!username || !password) { errEl.textContent = '아이디와 비밀번호를 입력하세요.'; return; }
+  if (!username) { errEl.textContent = '아이디를 입력하세요.'; return; }
+  if (username.length < 2) { errEl.textContent = '아이디는 2자 이상이어야 합니다.'; return; }
+  if (username.length > 32) { errEl.textContent = '아이디는 32자 이하여야 합니다.'; return; }
+  const policy = validatePasswordPolicy(password);
+  if (!policy.valid) { errEl.textContent = policy.message; return; }
+  if (password !== passwordConfirm) { errEl.textContent = '비밀번호가 일치하지 않습니다.'; return; }
   errEl.textContent = '';
   fetch('/api/register', {
     method: 'POST',
@@ -108,6 +147,8 @@ function doRegister() {
         updateAuthUI();
         hideAuthPanel();
         document.getElementById('register-password').value = '';
+        if (document.getElementById('register-password-confirm')) document.getElementById('register-password-confirm').value = '';
+        updatePasswordRulesUI('');
       } else {
         errEl.textContent = data.error || '가입에 실패했습니다.';
       }
@@ -452,6 +493,24 @@ function createMiniBoard(size, gameSnapshot) {
   return wrap;
 }
 
+function joinRoomAsSpectator(roomIdToJoin) {
+  const rid = roomIdToJoin != null ? String(roomIdToJoin) : '';
+  if (!rid) return;
+  if (!isLoggedIn()) {
+    showAuthPanel('login');
+    return;
+  }
+  if (!socket) initSocket();
+  function doJoin() {
+    socket.emit('join-room-as-spectator', { roomId: rid });
+  }
+  if (socket.connected) {
+    doJoin();
+  } else {
+    socket.once('connect', doJoin);
+  }
+}
+
 function renderRoomList(rooms) {
   const listEl = document.getElementById('room-list');
   const emptyEl = document.getElementById('lobby-empty');
@@ -465,11 +524,12 @@ function renderRoomList(rooms) {
   rooms.slice(0, 6).forEach(function (r) {
     const li = document.createElement('li');
     const card = document.createElement('div');
-    card.className = 'room-card' + (r.playerCount >= 2 ? ' full' : '');
+    const isFull = r.playerCount >= 2;
+    card.className = 'room-card' + (isFull ? ' full' : '');
     const statusText = r.waiting ? '대기 중' : (r.gameSnapshot && r.gameSnapshot.gameEnded ? '종료' : '대국 중');
     card.innerHTML =
-      '<div><span class="room-id">' + r.roomId + '</span><div class="room-meta">' + r.size + '×' + r.size + ' · ' + statusText + '</div></div>' +
-      '<div class="room-players">' + r.playerCount + '/2</div>';
+      '<div><span class="room-id">' + r.roomId + '</span><div class="room-meta">' + r.size + '×' + r.size + ' · ' + statusText + (r.spectatorCount ? ' · 관람 ' + r.spectatorCount + '명' : '') + '</div></div>' +
+      '<div class="room-players">' + r.playerCount + '/2' + (r.spectatorCount ? ' · 관람 ' + r.spectatorCount : '') + '</div>';
     card.appendChild(createMiniBoard(r.size, r.gameSnapshot || null));
     const playersRow = document.createElement('div');
     playersRow.className = 'room-card-players';
@@ -482,8 +542,17 @@ function renderRoomList(rooms) {
     playersRow.appendChild(whitePart);
     playersRow.appendChild(blackPart);
     card.appendChild(playersRow);
-    if (r.playerCount < 2) {
-      card.style.cursor = 'pointer';
+    card.style.cursor = 'pointer';
+    if (isFull) {
+      const rid = r.roomId;
+      card.onclick = function () {
+        joinRoomAsSpectator(rid);
+      };
+      const specLabel = document.createElement('div');
+      specLabel.className = 'room-card-spectator-label';
+      specLabel.textContent = '관람하기';
+      card.appendChild(specLabel);
+    } else {
       card.onclick = function () {
         if (!isLoggedIn()) { showAuthPanel('login'); return; }
         document.getElementById('room-code-input').value = r.roomId;
@@ -494,6 +563,19 @@ function renderRoomList(rooms) {
     li.appendChild(card);
     listEl.appendChild(li);
   });
+}
+
+function refreshRoomList() {
+  const btn = document.getElementById('lobby-refresh-btn');
+  if (btn) btn.disabled = true;
+  if (socket && socket.connected) {
+    socket.emit('list-rooms');
+    if (btn) setTimeout(function () { btn.disabled = false; }, 500);
+  } else {
+    if (!socket) initSocket();
+    socket.once('room-list', function () { if (btn) btn.disabled = false; });
+    socket.once('connect', function () { socket.emit('list-rooms'); });
+  }
 }
 
 function renderMatchAvailableRooms(rooms) {
@@ -549,6 +631,7 @@ function goToStart() {
     socket.disconnect();
     socket = null;
   }
+  isSpectator = false;
   stopMultiplayerTimer();
   roomId = null;
   myColor = null;
@@ -559,7 +642,47 @@ function goToStart() {
   hideSidebarResult();
   hideCountRequestUI();
   hideStoneChoosing();
+  setGameScreenSpectator(false);
   showMainSection('games');
+}
+
+function setGameScreenSpectator(spectator) {
+  const screen = document.getElementById('screen-game');
+  if (screen) screen.classList.toggle('spectator-mode', !!spectator);
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  const div = document.createElement('div');
+  div.textContent = String(s);
+  return div.innerHTML;
+}
+
+function sendRoomChat() {
+  const input = document.getElementById('game-chat-input');
+  if (!roomId || !socket || !input) return;
+  const text = input.value.trim();
+  if (!text) return;
+  const username = (getStoredUser() && getStoredUser().username) || '나';
+  lastSentChatText = text;
+  appendChatMessage(username, text);
+  socket.emit('room-chat', { roomId, text });
+  input.value = '';
+}
+
+function appendChatMessage(username, text) {
+  const list = document.getElementById('game-chat-messages');
+  if (!list) return;
+  const div = document.createElement('div');
+  div.className = 'chat-msg';
+  div.innerHTML = '<span class="chat-user">' + escapeHtml(username) + '</span>' + escapeHtml(text);
+  list.appendChild(div);
+  list.scrollTop = list.scrollHeight;
+}
+
+function clearGameChatMessages() {
+  const list = document.getElementById('game-chat-messages');
+  if (list) list.innerHTML = '';
 }
 
 function setMatchStatus(text, isError) {
@@ -586,7 +709,7 @@ function initSocket() {
     const base = '서버에 연결할 수 없습니다. ';
     const hint = window.location.protocol === 'file:'
       ? '브라우저 주소창에 http://localhost:3000/lukabaduk.html 로 접속해 주세요.'
-      : '터미널에서 npm run dev 로 실행한 뒤, 이 페이지를 새로고침해 주세요.';
+      : 'lukabaduk 폴더에서 node server.js (또는 pnpm dev)로 서버를 띄운 뒤, 이 페이지를 새로고침해 주세요. (next dev만 쓰면 채팅/대국이 안 됩니다)';
     setMatchStatus(base + hint, true);
     console.warn('Socket connect_error', err);
   });
@@ -605,6 +728,7 @@ function initSocket() {
   socket.on('room-joined', ({ roomId: rid }) => {
     roomId = rid;
     myColor = null;
+    isSpectator = false;
     lastCreatedRoomTimeConfig = null;
     waitingRoomCodeEl.textContent = rid;
     updateWaitingTimeDisplay(null);
@@ -634,6 +758,7 @@ function initSocket() {
   });
 
   socket.on('game-started', ({ gameState: state, blackPlayer, whitePlayer, timeConfig: serverTimeConfig }) => {
+    isSpectator = false;
     myColor = socket.id === blackPlayer ? BLACK : WHITE;
     SIZE = state.size;
     if (serverTimeConfig && (serverTimeConfig.base != null || serverTimeConfig.byoYomi != null)) {
@@ -659,6 +784,36 @@ function initSocket() {
     initBoard();
     updateGameState(state);
     startMultiplayerTimer();
+    setGameScreenSpectator(false);
+    clearGameChatMessages();
+    showScreen('screen-game');
+  });
+
+  socket.on('room-joined-as-spectator', ({ roomId: rid, gameState: state, timeConfig: serverTimeConfig }) => {
+    roomId = rid;
+    myColor = null;
+    isSpectator = true;
+    SIZE = state.size;
+    if (serverTimeConfig && (serverTimeConfig.base != null || serverTimeConfig.byoYomi != null)) {
+      const baseNum = Number(serverTimeConfig.base);
+      const byoNum = Number(serverTimeConfig.byoYomi);
+      timeConfig = {
+        base: (serverTimeConfig.base != null && !Number.isNaN(baseNum)) ? baseNum : 180,
+        byoYomi: (serverTimeConfig.byoYomi != null && !Number.isNaN(byoNum)) ? byoNum : 10,
+      };
+    }
+    gameState = state;
+    countRequestedBy = null;
+    clearDeadStoneMarks();
+    gameRoomCodeEl.textContent = roomId;
+    hideSidebarResult();
+    hideCountRequestUI();
+    if (myColorLabelEl) myColorLabelEl.textContent = '관람';
+    initBoard();
+    updateGameState(state);
+    startMultiplayerTimer();
+    setGameScreenSpectator(true);
+    clearGameChatMessages();
     showScreen('screen-game');
   });
 
@@ -677,6 +832,15 @@ function initSocket() {
   socket.on('game-state-updated', ({ gameState: state }) => {
     updateGameState(state);
     if (gameState && !gameState.gameEnded) startMultiplayerTimer();
+  });
+
+  socket.on('room-chat', ({ username, text }) => {
+    const ourName = (getStoredUser() && getStoredUser().username) || '';
+    if (ourName && username === ourName && text === lastSentChatText) {
+      lastSentChatText = '';
+      return;
+    }
+    appendChatMessage(username, text);
   });
 
   socket.on('count-requested', ({ requestedBy }) => {
@@ -943,6 +1107,7 @@ function updateGameState(state) {
   gameState = state;
   const isMyTurn = state.currentTurn === myColor;
   const blocked = !!countRequestedBy;
+  const spectatorOrNotMyTurn = isSpectator || !isMyTurn;
   const isFirstBlack = state.currentTurn === BLACK && state.blackMoveCount === 0;
   const isFirstWhite = state.currentTurn === WHITE && state.whiteMoveCount === 0;
 
@@ -975,11 +1140,11 @@ function updateGameState(state) {
     passCountEl.textContent = '';
   }
 
-  passBtn.disabled = !isMyTurn || state.gameEnded || blocked;
-  undoBtn.disabled = !isMyTurn || state.gameEnded || blocked;
+  passBtn.disabled = spectatorOrNotMyTurn || state.gameEnded || blocked;
+  undoBtn.disabled = spectatorOrNotMyTurn || state.gameEnded || blocked;
 
   boardEl.querySelectorAll('.cell').forEach(cell => {
-    if (isMyTurn && !state.gameEnded && !blocked) {
+    if (!isSpectator && isMyTurn && !state.gameEnded && !blocked) {
       cell.classList.remove('disabled');
     } else {
       cell.classList.add('disabled');
@@ -1589,4 +1754,53 @@ function judgePosition() {
   renderJudgePosition();
 }
 
+function handleOAuthCallback() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token');
+  const userStr = params.get('user');
+  const oauthError = params.get('oauth_error');
+  if (token && userStr) {
+    try {
+      const user = JSON.parse(userStr);
+      setToken(token);
+      setUser(user);
+      if (socket) { socket.disconnect(); socket = null; }
+      window.history.replaceState({}, document.title, window.location.pathname || '/lukabaduk.html');
+    } catch (e) {}
+  }
+  if (oauthError) {
+    const msg = oauthError === 'not_configured' ? '소셜 로그인이 설정되지 않았습니다.' :
+      oauthError === 'use_custom_server' ? '소셜 로그인을 사용하려면 터미널에서 "pnpm dev"로 서버를 실행해 주세요. (next dev만으로는 동작하지 않습니다)' :
+      oauthError === 'access_denied' ? '로그인이 취소되었습니다.' :
+      oauthError === 'token_failed' ? '토큰 발급에 실패했습니다.' :
+      oauthError === 'no_code' ? '인증 코드를 받지 못했습니다.' :
+      '소셜 로그인 중 오류가 발생했습니다.';
+    showAuthPanel('login');
+    const errEl = document.getElementById('auth-login-error');
+    if (errEl) errEl.textContent = msg;
+    window.history.replaceState({}, document.title, window.location.pathname || '/lukabaduk.html');
+  }
+}
+
+handleOAuthCallback();
 updateAuthUI();
+
+(function initPasswordRules() {
+  const pwEl = document.getElementById('register-password');
+  if (pwEl) {
+    pwEl.addEventListener('input', function () { updatePasswordRulesUI(this.value); });
+    pwEl.addEventListener('blur', function () { updatePasswordRulesUI(this.value); });
+  }
+})();
+
+(function initGameChat() {
+  const input = document.getElementById('game-chat-input');
+  if (input) {
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        sendRoomChat();
+      }
+    });
+  }
+})();

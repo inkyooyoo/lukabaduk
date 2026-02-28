@@ -1,10 +1,65 @@
 /* Socket.io 게임 서버 */
 const { Server } = require('socket.io');
 const { createServer } = require('http');
+const https = require('https');
 const { parse } = require('url');
 const next = require('next');
-const { register, login, createToken, verifyToken } = require('./lib/auth-server.js');
+const { register, login, createToken, verifyToken, findOrCreateUserByOAuth } = require('./lib/auth-server.js');
 const gtpAi = require('./lib/gtp-ai.js');
+
+const KAKAO_CLIENT_ID = process.env.KAKAO_CLIENT_ID || '';
+const KAKAO_CLIENT_SECRET = process.env.KAKAO_CLIENT_SECRET || '';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+
+function getBaseUrl(req) {
+  const host = req.headers.host || `${hostname}:${port}`;
+  const proto = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+  return `${proto}://${host}`;
+}
+
+function httpsPost(url, body) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const data = typeof body === 'string' ? body : (new URLSearchParams(body)).toString();
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(data) },
+      },
+      (res) => {
+        let buf = '';
+        res.on('data', (chunk) => { buf += chunk; });
+        res.on('end', () => {
+          try { resolve(JSON.parse(buf)); } catch (e) { resolve(buf); }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
+}
+
+function httpsGet(url, headers) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = https.request(
+      { hostname: u.hostname, path: u.pathname + u.search, method: 'GET', headers: headers || {} },
+      (res) => {
+        let buf = '';
+        res.on('data', (chunk) => { buf += chunk; });
+        res.on('end', () => {
+          try { resolve(JSON.parse(buf)); } catch (e) { resolve(buf); }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = process.env.HOSTNAME || 'localhost';
@@ -25,11 +80,12 @@ const handle = app.getRequestHandler();
 app.prepare().then(() => {
   const httpServer = createServer(async (req, res) => {
     const parsedUrl = parse(req.url || '', true);
+    const pathname = (parsedUrl.pathname || '').replace(/\/$/, '') || '/';
     if (parsedUrl.pathname && parsedUrl.pathname.startsWith('/socket.io/')) {
       return;
     }
 
-    if (req.method === 'POST' && parsedUrl.pathname === '/api/register') {
+    if (req.method === 'POST' && pathname === '/api/register') {
       try {
         const body = await readBody(req);
         const { username, password } = JSON.parse(body || '{}');
@@ -45,7 +101,7 @@ app.prepare().then(() => {
       return;
     }
 
-    if (req.method === 'POST' && parsedUrl.pathname === '/api/login') {
+    if (req.method === 'POST' && pathname === '/api/login') {
       try {
         const body = await readBody(req);
         const { username, password } = JSON.parse(body || '{}');
@@ -61,7 +117,140 @@ app.prepare().then(() => {
       return;
     }
 
-    if (req.method === 'GET' && parsedUrl.pathname === '/api/ai-capable') {
+    if (req.method === 'GET' && pathname === '/api/auth/kakao' && KAKAO_CLIENT_ID) {
+      const base = getBaseUrl(req);
+      const redirectUri = `${base}/api/auth/kakao/callback`;
+      const state = require('crypto').randomBytes(16).toString('hex');
+      const authUrl = `https://kauth.kakao.com/oauth/authorize?response_type=code&client_id=${encodeURIComponent(KAKAO_CLIENT_ID)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
+      res.writeHead(302, { Location: authUrl });
+      res.end();
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/auth/kakao/callback' && KAKAO_CLIENT_ID) {
+      const base = getBaseUrl(req);
+      const redirectUri = `${base}/api/auth/kakao/callback`;
+      const { code, state, error } = parsedUrl.query || {};
+      const frontUrl = `${base}/lukabaduk.html`;
+      if (error) {
+        res.writeHead(302, { Location: `${frontUrl}?oauth_error=${encodeURIComponent(error)}` });
+        res.end();
+        return;
+      }
+      if (!code) {
+        res.writeHead(302, { Location: `${frontUrl}?oauth_error=no_code` });
+        res.end();
+        return;
+      }
+      try {
+        const tokenRes = await httpsPost('https://kauth.kakao.com/oauth/token', {
+          grant_type: 'authorization_code',
+          client_id: KAKAO_CLIENT_ID,
+          redirect_uri: redirectUri,
+          code: code,
+          ...(KAKAO_CLIENT_SECRET ? { client_secret: KAKAO_CLIENT_SECRET } : {}),
+        });
+        if (tokenRes.error) {
+          res.writeHead(302, { Location: `${frontUrl}?oauth_error=${encodeURIComponent(tokenRes.error)}` });
+          res.end();
+          return;
+        }
+        const accessToken = tokenRes.access_token;
+        if (!accessToken) {
+          res.writeHead(302, { Location: `${frontUrl}?oauth_error=token_failed` });
+          res.end();
+          return;
+        }
+        const userRes = await httpsGet('https://kapi.kakao.com/v2/user/me', { Authorization: `Bearer ${accessToken}` });
+        const providerId = userRes.id;
+        const displayName = userRes.kakao_account?.profile?.nickname || userRes.properties?.nickname || userRes.kakao_account?.email || `kakao_${providerId}`;
+        const email = userRes.kakao_account?.email || null;
+        const user = findOrCreateUserByOAuth('kakao', providerId, displayName, email);
+        const token = createToken(user.id, user.username);
+        res.writeHead(302, { Location: `${frontUrl}?token=${encodeURIComponent(token)}&user=${encodeURIComponent(JSON.stringify({ id: user.id, username: user.username }))}` });
+        res.end();
+      } catch (err) {
+        console.error('Kakao OAuth error:', err);
+        res.writeHead(302, { Location: `${frontUrl}?oauth_error=server` });
+        res.end();
+      }
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/auth/kakao' && !KAKAO_CLIENT_ID) {
+      const base = getBaseUrl(req);
+      res.writeHead(302, { Location: `${base}/lukabaduk.html?oauth_error=not_configured&provider=kakao` });
+      res.end();
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/auth/google' && !GOOGLE_CLIENT_ID) {
+      const base = getBaseUrl(req);
+      res.writeHead(302, { Location: `${base}/lukabaduk.html?oauth_error=not_configured&provider=google` });
+      res.end();
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/auth/google' && GOOGLE_CLIENT_ID) {
+      const base = getBaseUrl(req);
+      const redirectUri = `${base}/api/auth/google/callback`;
+      const state = require('crypto').randomBytes(16).toString('hex');
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(GOOGLE_CLIENT_ID)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent('openid email profile')}&state=${state}`;
+      res.writeHead(302, { Location: authUrl });
+      res.end();
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/auth/google/callback' && GOOGLE_CLIENT_ID) {
+      const base = getBaseUrl(req);
+      const redirectUri = `${base}/api/auth/google/callback`;
+      const { code, state, error } = parsedUrl.query || {};
+      const frontUrl = `${base}/lukabaduk.html`;
+      if (error) {
+        res.writeHead(302, { Location: `${frontUrl}?oauth_error=${encodeURIComponent(error)}` });
+        res.end();
+        return;
+      }
+      if (!code) {
+        res.writeHead(302, { Location: `${frontUrl}?oauth_error=no_code` });
+        res.end();
+        return;
+      }
+      try {
+        const tokenRes = await httpsPost('https://oauth2.googleapis.com/token', {
+          code,
+          client_id: GOOGLE_CLIENT_ID,
+          client_secret: GOOGLE_CLIENT_SECRET,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code',
+        });
+        if (tokenRes.error) {
+          res.writeHead(302, { Location: `${frontUrl}?oauth_error=${encodeURIComponent(tokenRes.error)}` });
+          res.end();
+          return;
+        }
+        const accessToken = tokenRes.access_token;
+        if (!accessToken) {
+          res.writeHead(302, { Location: `${frontUrl}?oauth_error=token_failed` });
+          res.end();
+          return;
+        }
+        const userRes = await httpsGet('https://www.googleapis.com/oauth2/v2/userinfo', { Authorization: `Bearer ${accessToken}` });
+        const providerId = userRes.id;
+        const displayName = userRes.name || userRes.email || `google_${providerId}`;
+        const user = findOrCreateUserByOAuth('google', providerId, displayName, userRes.email || null);
+        const token = createToken(user.id, user.username);
+        res.writeHead(302, { Location: `${frontUrl}?token=${encodeURIComponent(token)}&user=${encodeURIComponent(JSON.stringify({ id: user.id, username: user.username }))}` });
+        res.end();
+      } catch (err) {
+        console.error('Google OAuth error:', err);
+        res.writeHead(302, { Location: `${frontUrl}?oauth_error=server` });
+        res.end();
+      }
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/ai-capable') {
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({
         gtp: gtpAi.isConfigured(),
@@ -71,7 +260,7 @@ app.prepare().then(() => {
       return;
     }
 
-    if (req.method === 'POST' && parsedUrl.pathname === '/api/ai-move') {
+    if (req.method === 'POST' && pathname === '/api/ai-move') {
       try {
         const body = await readBody(req);
         const { size, moves, colorToPlay, timeRemainingSec, engine } = JSON.parse(body || '{}');
@@ -158,8 +347,9 @@ app.prepare().then(() => {
     next();
   });
 
-  // 게임 방 관리 (최대 6개)
+  // 게임 방 관리 (최대 6개 방, 방당 최대 10명: 대국자 2명 + 관람 8명)
   const MAX_ROOMS = 6;
+  const MAX_ROOM_MEMBERS = 10;
   const rooms = new Map(); // roomId -> GameRoom
 
   function getRoomList() {
@@ -168,6 +358,7 @@ app.prepare().then(() => {
         roomId: id,
         size: room.size,
         playerCount: room.players.size,
+        spectatorCount: room.spectators ? room.spectators.size : 0,
         waiting: !room.gameState,
       };
       if (room.gameState) {
@@ -201,11 +392,20 @@ app.prepare().then(() => {
       this.size = size;
       this.timeConfig = timeConfig || { base: DEFAULT_TIME_BASE, byoYomi: DEFAULT_TIME_BYOYOMI };
       this.players = new Map(); // socketId -> { color?: number }
+      this.spectators = new Set(); // socketId (관람자)
       this.gameState = null;
       this.choosing = false;
       this.createdAt = Date.now();
       this.timerId = null;
       this.countRequestedBy = null; // 1 | 2 | null
+    }
+
+    addSpectator(socketId) {
+      this.spectators.add(socketId);
+    }
+
+    removeSpectator(socketId) {
+      this.spectators.delete(socketId);
     }
 
     addPlayer(socketId, username) {
@@ -346,6 +546,53 @@ app.prepare().then(() => {
 
     socket.on('list-rooms', () => {
       socket.emit('room-list', { rooms: JSON.parse(JSON.stringify(getRoomList())) });
+    });
+
+    socket.on('join-room-as-spectator', (payload) => {
+      if (!socket.userId) {
+        socket.emit('error', { message: '로그인이 필요합니다.' });
+        return;
+      }
+      const roomId = payload && (payload.roomId != null ? String(payload.roomId) : payload.roomID != null ? String(payload.roomID) : '');
+      if (!roomId) {
+        socket.emit('error', { message: '방 코드가 없습니다.' });
+        return;
+      }
+      const room = rooms.get(roomId);
+      if (!room) {
+        socket.emit('error', { message: '방을 찾을 수 없습니다.' });
+        return;
+      }
+      if (room.players.size < 2 || !room.gameState) {
+        socket.emit('error', { message: '아직 대국이 시작되지 않았습니다. 대기 중인 방에는 참가로 입장해 주세요.' });
+        return;
+      }
+      const totalInRoom = room.players.size + (room.spectators ? room.spectators.size : 0);
+      if (totalInRoom >= MAX_ROOM_MEMBERS) {
+        socket.emit('error', { message: `방 인원이 가득 찼습니다. (최대 ${MAX_ROOM_MEMBERS}명)` });
+        return;
+      }
+      socket.join(roomId);
+      room.addSpectator(socket.id);
+      const blackP = Array.from(room.players.entries()).find(([, p]) => p.color === 1);
+      const whiteP = Array.from(room.players.entries()).find(([, p]) => p.color === 2);
+      let gameStateCopy;
+      try {
+        gameStateCopy = JSON.parse(JSON.stringify(room.gameState));
+      } catch (err) {
+        console.error('Spectator gameState serialize error:', err);
+        socket.emit('error', { message: '대국 정보를 보낼 수 없습니다.' });
+        return;
+      }
+      const payloadOut = {
+        roomId,
+        gameState: gameStateCopy,
+        timeConfig: room.timeConfig,
+        blackPlayerName: blackP ? (blackP[1].username || blackP[0]) : '',
+        whitePlayerName: whiteP ? (whiteP[1].username || whiteP[0]) : '',
+      };
+      socket.emit('room-joined-as-spectator', payloadOut);
+      io.emit('room-list-updated', { rooms: JSON.parse(JSON.stringify(getRoomList())) });
     });
 
     socket.on('join-room', ({ roomId }) => {
@@ -606,6 +853,16 @@ app.prepare().then(() => {
       io.to(roomId).emit('count-request-cancelled', {});
     });
 
+    socket.on('room-chat', ({ roomId, text }) => {
+      const room = rooms.get(roomId);
+      if (!room) return;
+      if (!socket.rooms.has(roomId)) return;
+      const trimmed = (text && String(text)).trim().slice(0, 500);
+      if (!trimmed) return;
+      const username = socket.username || socket.id;
+      io.to(roomId).emit('room-chat', { username, text: trimmed });
+    });
+
     socket.on('disconnect', () => {
       console.log('Client disconnected:', socket.id);
       for (const [rId, room] of rooms) {
@@ -619,6 +876,12 @@ app.prepare().then(() => {
             room.resetForNewOpponent();
             io.to(rId).emit('opponent-left', { roomId: rId });
           }
+          io.emit('room-list-updated', { rooms: JSON.parse(JSON.stringify(getRoomList())) });
+          break;
+        }
+        if (room.spectators && room.spectators.has(socket.id)) {
+          room.removeSpectator(socket.id);
+          socket.leave(rId);
           io.emit('room-list-updated', { rooms: JSON.parse(JSON.stringify(getRoomList())) });
           break;
         }
