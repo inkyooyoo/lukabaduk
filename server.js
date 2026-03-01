@@ -1,4 +1,5 @@
 /* Socket.io 게임 서버 */
+try { require('dotenv').config(); } catch (_) {}
 const { Server } = require('socket.io');
 const { createServer } = require('http');
 const https = require('https');
@@ -264,7 +265,7 @@ app.prepare().then(() => {
       try {
         const body = await readBody(req);
         const { size, moves, colorToPlay, timeRemainingSec, engine } = JSON.parse(body || '{}');
-        const useEngine = engine === 'gnugo' ? 'gnugo' : 'pachi';
+        const useEngine = (engine === 'gnugo' ? 'gnugo' : null) || 'gnugo';
         if (!gtpAi.isEngineConfigured(useEngine)) {
           res.statusCode = 503;
           res.setHeader('Content-Type', 'application/json');

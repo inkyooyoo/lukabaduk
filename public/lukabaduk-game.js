@@ -14,7 +14,7 @@ let currentTurn = BLACK, lastMove = null, capturedBlack = 0, capturedWhite = 0, 
 let boardHistory = [], lastCapturedStones = [], moveHistory = [], blackMoveCount = 0, whiteMoveCount = 0;
 let yellowAsBlack = new Set(), yellowAsWhite = new Set();
 let gameMode = 'human', humanColor = BLACK, aiColor = WHITE, aiGameStarted = false, showingTerritory = false;
-var selectedAiEngine = 'pachi';
+var selectedAiEngine = 'gnugo';
 var countRequestedBy = null;
 var deadStoneMarks = new Set();
 var scoringInspectMode = false;
@@ -124,18 +124,18 @@ function onHumanMoved() {
 }
 function goToHumanGame() { gameMode = 'human'; aiGameStarted = false; resetGame(); showScreen('screen-game'); if (currentTurn === BLACK) startTimer(); }
 function goToAIChoice(engine) {
-        selectedAiEngine = engine === 'gnugo' ? 'gnugo' : 'pachi';
+        selectedAiEngine = 'gnugo';
         showScreen('screen-ai-choice');
         var hintEl = document.getElementById('ai-engine-hint');
-        var label = selectedAiEngine === 'gnugo' ? 'GNU Go' : 'Pachi';
+        var label = 'AI';
         if (hintEl) hintEl.textContent = label + '와 대국합니다. 돌가르기 후 시작하세요.';
         fetch('/api/ai-capable').then(function (r) { return r.json(); }).then(function (data) {
             if (!hintEl) return;
-            var available = data && ((selectedAiEngine === 'gnugo' && data.gnugo) || (selectedAiEngine === 'pachi' && data.pachi));
+            var available = data && data.gnugo;
             if (available) hintEl.textContent = label + '와 대국합니다. 돌가르기 후 시작하세요.';
-            else hintEl.textContent = '서버에 ' + label + '가 설정되면 대국 가능합니다. (미설정 시 브라우저 AI로 진행)';
+            else hintEl.textContent = '서버에 AI가 설정되면 대국 가능합니다. (미설정 시 브라우저 AI로 진행)';
         }).catch(function () {
-            if (hintEl) hintEl.textContent = '서버에 ' + label + '가 설정되면 대국 가능합니다.';
+            if (hintEl) hintEl.textContent = '서버에 AI가 설정되면 대국 가능합니다.';
         });
     }
 function doStoneChoice() {

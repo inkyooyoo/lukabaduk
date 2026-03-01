@@ -14,7 +14,7 @@
 
 - **클라이언트** → `POST /api/ai-move` with `{ size, moves, colorToPlay, timeRemainingSec, engine }`. 타임아웃은 `(timeRemainingSec + 6) * 1000` ms 이상으로 두어 엔진 응답을 기다림.
 - **서버** → `size`는 9/13/19만 허용, `moves` 배열 각 항목은 `{ color: 'B'|'W', row, col }` 범위 검사 후 `lib/gtp-ai.js`의 `getMove()` 호출.
-- **gtp-ai** → 엔진 실행 시 `cwd`를 엔진 디렉터리로 설정(데이터 파일 로드), 명령 순서: `boardsize` → `clear_board` → `komi 7.5` → `play` 반복 → `time_settings` → `genmove`. stdout에서 **마지막**으로 파싱된 `= 좌표`/`= pass`만 착수로 사용. `?` 오류 시 해당 수 무시. Windows에서는 프로세스 종료 시 `kill()` 사용.
+- **gtp-ai** → 엔진 실행 시 `cwd`를 엔진 디렉터리로 설정(데이터 파일 로드), 명령 순서: `boardsize` → `clear_board` → `komi 6.5` → `level 10`(GNU Go) → `play` 반복 → `time_settings` → `genmove`. 기본 실행 인자 `--mode gtp`(보통바둑 참고). stdout에서 파싱된 `= 좌표`/`= pass` 사용.
 
 ## Pachi 설정 (권장)
 
@@ -68,8 +68,8 @@ set GTP_ENGINE_PATH_GNUGO=C:\path\to\gnugo.exe
 export GTP_ENGINE_PATH_GNUGO=/usr/local/bin/gnugo
 ```
 
-- **GTP_ENGINE_PATH_GNUGO**: GNU Go 실행 파일 경로.
-- **GTP_ENGINE_ARGS_GNUGO**: (선택) 비워두면 `gtp` 사용.
+- **GTP_ENGINE_PATH_GNUGO**: GNU Go 실행 파일 경로. 비워두면 **Windows 한정**으로 `lukabaduk/engines/gnugo-3.8/gnugo.exe`가 있으면 해당 경로를 사용(보통바둑과 동일 폴더 구조).
+- **GTP_ENGINE_ARGS_GNUGO**: (선택) 비워두면 `--mode gtp` 사용(보통바둑 참고).
 
 ## KataGo 설정 (예시)
 
