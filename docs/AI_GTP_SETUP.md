@@ -8,7 +8,17 @@
 - **서버에 GTP 엔진 설정됨**: AI 차례에 서버로 `POST /api/ai-move` 요청 → 엔진이 **남은 착수시간(time_settings)** 안에 수를 두고 결과 반환 → 클라이언트가 그 수를 적용.
 - **설정 안 됨 / 타임아웃 / 오류**: 기존 MCTS(몬테카를로)로 수를 두며, 기존처럼 **시간 제한(deadline)** 과 청크 단위 실행으로 착수시간을 준수합니다.
 
-즉, **점진적 강화**: 엔진만 설정하면 Pachi 수준 AI가 붙고, 없으면 기존 MCTS AI가 동작합니다.
+즉, **점진적 강화**: 엔진만 설정하면 GNU Go AI가 붙고, 없으면 기존 MCTS AI가 동작합니다.
+
+## 로컬 vs 웹 배포 (Railway 등)
+
+| 환경 | AI와 두기 동작 |
+|------|------------------|
+| **로컬 (Windows)** | `engines/gnugo-3.8/gnugo.exe` 있거나 `GTP_ENGINE_PATH_GNUGO` 설정 시 GNU Go 사용. 미설정 시 브라우저 MCTS 폴백. |
+| **웹 (Railway/Linux 등)** | `GTP_ENGINE_PATH_GNUGO`에 Linux용 gnugo 경로 설정 시 GNU Go 사용. 미설정 시 **동일하게 브라우저 MCTS 폴백**으로 플레이 가능. |
+
+- 웹에서는 `engines/` 폴더가 저장소에 없으므로(용량·gitignore) **GNU Go를 쓰려면** 배포 환경에 gnugo를 설치하고 환경변수로 경로를 지정해야 합니다.
+- 환경변수 없이 배포해도 **AI와 두기는 동작**하며, 서버가 503을 반환할 때 클라이언트가 자동으로 MCTS로 진행합니다.
 
 ## GTP 연동 구조 (개발 참고)
 

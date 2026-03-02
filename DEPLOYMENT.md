@@ -72,3 +72,4 @@ git push origin main
 - [ ] `/lukabaduk.html` 접속
 - [ ] 로그인/회원가입
 - [ ] 경기하기 → 방 목록 조회, 방 생성/입장, 2인 대국이 로컬처럼 동작하는지 확인
+- [ ] **혼자두기 → AI와 두기**: 서버에 GNU Go 미설정 시에도 **브라우저 MCTS**로 자동 폴백되어 동작함. GNU Go 사용하려면 호스트에 Linux용 gnugo 설치 후 `GTP_ENGINE_PATH_GNUGO` 환경변수 설정.
